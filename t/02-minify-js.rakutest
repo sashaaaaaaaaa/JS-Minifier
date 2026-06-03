@@ -1,0 +1,64 @@
+use v6;
+use Test;
+use Test::Output;
+use lib 'lib';
+use JS::Minifier;
+
+plan 33;
+
+sub min-test($filename) {
+  my $infile = open("t/scripts/$filename.js") or die("couldn't open file");
+  my $minified = js-minifier(input => $infile);
+  my $expected_output = slurp("t/scripts/{$filename}-expected.js") or die("couldn't open file");
+  is $minified, $expected_output, "testing $filename";
+}
+
+min-test('s2');  # missing semi-colons
+min-test('s3');  # //@
+min-test('s4');  # /*@*/
+min-test('s5');  # //
+min-test('s6');  # /**/
+min-test('s7');  # blocks of comments
+min-test('s8');  # + + - -
+min-test('s9');  # alphanum
+min-test('s10'); # }])
+min-test('s11'); # string and regexp literals
+min-test('s12'); # other characters
+min-test('s13'); # comment at start
+min-test('s14'); # slash following square bracket
+                 # ... is division not RegExp
+min-test('s15'); # newline-at-end-of-file
+                 # -> not there so don't add
+min-test('s16'); # newline-at-end-of-file
+                 # -> it's there so leave it alone
+
+is js-minifier(input => 'var x = 2;'), "var x=2;", 'string literal input and output';
+is js-minifier(input => "var x = 2;\n;;;alert('hi');\nvar x = 2;", :strip_debug), 'var x=2;var x=2;', 'strip_debug option';
+is js-minifier(input => 'var x = 2;', copyright => "BSD"), '/* BSD */var x=2;', 'copyright option';
+is js-minifier(input => 'function test(s) { return /\d{1,2}/.test(s); }'), 'function test(s){return/\d{1,2}/.test(s);}', 'non-parened regex1 ';
+is js-minifier(input => 'function(s) { return /\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(s); }'), 'function(s){return/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(s);}', 'non-parened regex2 ';
+
+# new feature tests
+
+is js-minifier(input => '#!/usr/bin/env node
+var x = 1;'), '#!/usr/bin/env node
+var x=1;', 'shebang preservation';
+
+is js-minifier(input => 'var x = 1; /*! license */', :keep_bang_comments), 'var x=1;/*! license*/', 'bang comment preservation';
+
+is js-minifier(input => 'var x = true;'), 'var x=!0;', 'true replacement';
+is js-minifier(input => 'var x = false;'), 'var x=!1;', 'false replacement';
+
+is js-minifier(input => '{;}'), '{}', 'semicolon before closing brace';
+
+is js-minifier(input => 'debugger;', :drop_debugger), '', 'drop debugger';
+is js-minifier(input => 'console.log("test");', :drop_console), '', 'drop console.log';
+is js-minifier(input => "x = 'hello'\ny = 'world'"), "x='hello'\ny='world'", 'multi-line string continuations';
+
+is js-minifier(input => 'var x = 1; /* BEGIN NOCOMPRESS */ raw code here ; /* END NOCOMPRESS */ var y = 2;', :nocompress), 'var x=1; raw code here ; var y=2;', 'nocompress blocks';
+
+is js-minifier(input => 'console.log("hi");' ), 'console.log("hi");', 'console kept by default';
+is js-minifier(input => 'debugger;'), 'debugger;', 'debugger kept by default';
+
+is js-minifier(input => '`hello ${name} world`'), '`hello ${name} world`', 'template literal';
+is js-minifier(input => '`escaped \\` backtick`'), '`escaped \\` backtick`', 'template literal with escaped backtick';

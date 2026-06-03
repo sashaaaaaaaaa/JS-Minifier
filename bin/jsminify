@@ -1,0 +1,115 @@
+#!/usr/bin/env raku
+use v6;
+use lib $*PROGRAM.parent.parent.add('lib');
+use JS::Minifier;
+
+my Bool $strip_debug;
+my Bool $keep_bang_comments;
+my Bool $drop_console;
+my Bool $drop_debugger;
+my Bool $nocompress;
+my Bool $check;
+my Bool $version;
+my Bool $help;
+my Str  $output;
+my Str  $copyright;
+my      @files;
+
+my $i = 0;
+while $i < @*ARGS.elems {
+  given @*ARGS[$i] {
+    when '-o' | '--output'        { $output = @*ARGS[++$i]; }
+    when '-c' | '--copyright'     { $copyright = @*ARGS[++$i]; }
+    when '-s' | '--strip-debug'   { $strip_debug = True; }
+    when '-b' | '--keep-bang-comments' { $keep_bang_comments = True; }
+    when '--drop-console'         { $drop_console = True; }
+    when '--drop-debugger'        { $drop_debugger = True; }
+    when '--nocompress'           { $nocompress = True; }
+    when '--check'                { $check = True; }
+    when '--version'              { $version = True; }
+    when '-h' | '--help'          { $help = True; }
+    default                       { @files.push($_); }
+  }
+  $i++;
+}
+
+if $version {
+  my $ver = '?';
+  for slurp($*PROGRAM.parent.parent.add('META6.json')).lines -> $line {
+    if $line ~~ /\"version\"/ {
+      my @parts = $line.comb(/\" <-[\"]>* \"/);
+      $ver = @parts[1].subst(/\"/, '', :g) if @parts > 1;
+      last;
+    }
+  }
+  say "JS::Minifier v$ver";
+  exit 0;
+}
+
+if $help {
+  say Q:c:to/HELP/;
+    Usage: jsminify [options] [file...]
+
+    Minify JavaScript file(s). Reads from stdin if no file given.
+
+    Options:
+      -o, --output FILE       Write output to FILE (default: stdout)
+      -c, --copyright TEXT    Include copyright comment at top of output
+      -s, --strip-debug       Strip lines beginning with ;;; (debug convention)
+      -b, --keep-bang-comments Preserve /*! important comments */
+      --drop-console          Remove console.* calls
+      --drop-debugger         Remove debugger; statements
+      --nocompress            Respect /* BEGIN NOCOMPRESS */ blocks
+      --check                 Only check for errors, no output
+      --version               Show version
+      -h, --help              Show this help
+    HELP
+  exit 0;
+}
+
+if $check {
+  my $has_errors = False;
+  for @files -> $file {
+    my $input = slurp $file;
+    try {
+      js-minifier(input => $input, strip_debug => $strip_debug,
+                  keep_bang_comments => $keep_bang_comments,
+                  drop_console => $drop_console,
+                  drop_debugger => $drop_debugger,
+                  nocompress => $nocompress);
+      CATCH {
+        note "Error in $file: $_";
+        $has_errors = True;
+      }
+    }
+  }
+  exit $has_errors ?? 1 !! 0;
+}
+
+my $output_fh;
+if $output {
+  $output_fh = open $output, :w;
+}
+
+my sub minify-and-print(Str $input) {
+  my $minified = js-minifier(input => $input,
+                             copyright => $copyright,
+                             strip_debug => $strip_debug,
+                             keep_bang_comments => $keep_bang_comments,
+                             drop_console => $drop_console,
+                             drop_debugger => $drop_debugger,
+                             nocompress => $nocompress);
+  if $output_fh {
+    $output_fh.print($minified);
+  } else {
+    print $minified;
+  }
+}
+
+if @files {
+  minify-and-print($_) for @files.map({ slurp $_ });
+} else {
+  minify-and-print($*IN.slurp);
+}
+
+$output_fh.close if $output_fh;

@@ -1,11 +1,10 @@
 language: generic
 install:
-  - curl -O -J -L https://github.com/nxadm/rakudo-pkg/releases/download/2017.01/perl6-rakudo-moarvm-ubuntu16.04_20170100-01_amd64.deb
-  - sudo dpkg -i perl6-rakudo-moarvm-ubuntu16.04_20170100-01_amd64.deb
-  - export PATH=/opt/rakudo/bin:~/.perl6/bin:$PATH
+  - curl -O -J -L https://github.com/nxadm/rakudo-pkg/releases/download/2017.01/rakudo-moarvm-ubuntu16.04_20170100-01_amd64.deb
+  - sudo dpkg -i rakudo-moarvm-ubuntu16.04_20170100-01_amd64.deb
+  - export PATH=/opt/rakudo/bin:~/.raku/bin:$PATH
   - git clone https://github.com/ugexe/zef $HOME/zef
-  - perl6 -I $HOME/zef/lib $HOME/zef/bin/zef --depsonly install .
-  - perl6 -I $HOME/zef/lib $HOME/zef/bin/zef --force --/test install .
+  - raku -I $HOME/zef/lib $HOME/zef/bin/zef --depsonly install .
+  - raku -I $HOME/zef/lib $HOME/zef/bin/zef --force --/test install .
 script:
-  - prove -v -e 'perl6 -Ilib' t/
-sudo: sudo 
+  - prove -v -e 'raku -Ilib' t/

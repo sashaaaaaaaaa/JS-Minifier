@@ -1,14 +1,20 @@
 {
     "perl" : "6.*",
-    "name" : "JS::Minify",
+    "name" : "JS::Minifier",
     "license" : "Artistic-2.0",
-    "version"  : "0.0.2",
-    "description" : "Perl 6 JavaScript minifier",
+    "version"  : "1.0.0",
+    "description" : "Raku JavaScript minifier – fork of JS::Minify",
     "provides" : {
-      "JS::Minify" : "lib/JS/Minify.pm6"
+      "JS::Minifier" : "lib/JS/Minifier.rakumod"
     },
-    "author" : "Sam Morrison <sam@samcm.com>",
+    "author" : "Sasha Abbott <sashaa@disroot.org>",
+    "auth" : "zef:sasha",
     "depends" : [],
     "test-depends" : [ "Test::Output" ],
-    "source-url" : "https://github.com/scmorrison/JS-Minify.git"
+    "source-url" : "https://github.com/sashaaaaaaaaa/JS-Minifier.git",
+    "support" : {
+      "source" : "https://github.com/sashaaaaaaaaa/JS-Minifier.git"
+    },
+    "tags" : [ "javascript", "minifier", "minify" ],
+    "bin" : [ "bin/jsminify" ]
 }
