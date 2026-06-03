@@ -67,7 +67,7 @@ is js-minifier(input => '`escaped \\` backtick`'), '`escaped \\` backtick`', 'te
 
 is js-minifier(input => 'console;', :drop_console), 'console;', 'bare console not dropped';
 
-is js-minifier(input => "x\n;;;y", :strip_debug), "x\n\\n", 'strip_debug strips ;;;y at end of input';
+is js-minifier(input => "x\n;;;y", :strip_debug), "x\n", 'strip_debug strips ;;;y at end of input';
 
 is js-minifier(input => '/* BEGIN NOCOMPRESS */ raw ; /* END NOCOMPRESS */', copyright => 'MIT', :nocompress),
    '/* MIT */ raw ; ',

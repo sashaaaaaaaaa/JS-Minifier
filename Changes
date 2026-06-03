@@ -2,6 +2,13 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
+    - Fix get() guard missing return and off-by-one (<=) causing
+      out-of-bounds reads
+    - Fix put-literal line continuation (backslash before newline)
+      outputting the backslash before detecting the newline
+    - Fix EOF handler sending literal '\n' instead of actual newline;
+      preserve-endspace already handles trailing newlines correctly
+    - Update tests for corrected trailing newline behavior
     - Add test coverage gaps: bare console with drop_console,
       strip_debug at EOF, copyright+nocompress, bang-comments+nocompress,
       nested template literals, true/false in object keys, combo flags

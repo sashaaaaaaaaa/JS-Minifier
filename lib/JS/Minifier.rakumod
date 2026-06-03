@@ -29,9 +29,7 @@ sub is-postfix(Str $x) returns Bool {
 sub get(%s) returns List {
   given %s<input>.elems {
     when *>0 {
-      unless %s<input_pos> <= %s<input>.elems {
-        ["", %s<last_read_char>, %s<input_pos>];
-      }
+      return ["", %s<last_read_char>, %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
       my $raw = %s<input>[%s<input_pos>];
       my Str $char = $raw // "";
       my Str $last_read_char = %s<input>[%s<input_pos>++] // "";
@@ -113,11 +111,12 @@ sub put-literal(%s is copy) returns Hash {
   %s = step-chr-a %s;
   loop {
     while %s<a> eq '\\' {
-      %s = %s.&step-chr-a;
-      if is-endspace(%s<a>) {
+      if is-endspace(%s<b>) {
+        %s = delete-chr-a %s;
         %s = delete-chr-a %s;
         next;
       }
+      %s = %s.&step-chr-a;
       %s = step-chr-a %s;
     }
     %s = step-chr-a %s;
@@ -488,7 +487,6 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
       %s = process-char %s;
     };
 
-    %s<output>.send('\n') if %s<input>.tail eq "\n";
     %s<output>.send: 'exit';
   }
 
