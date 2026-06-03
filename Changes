@@ -2,6 +2,17 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
+    - Add test coverage gaps: bare console with drop_console,
+      strip_debug at EOF, copyright+nocompress, bang-comments+nocompress,
+      nested template literals, true/false in object keys, combo flags
+    - Add full CLI test suite (t/03-cli.rakutest) covering stdin,
+      --nocompress, --check, --version, --help, -o, file args,
+      -s, -b, --drop-debugger
+    - Fix is-postfix/is-infix/is-alphanum returning True for empty
+      strings ('.contains("")' always returned True)
+    - Fix put-literal unterminated string detection (when !$delimiter
+      smartmatched against Bool False, never triggering)
+
     - Fork of JS::Minify by Sam Morrison
     - Rename module from JS::Minify to JS::Minifier
     - Rename .pm6 to .rakumod, .t to .rakutest
