@@ -1,38 +1,18 @@
 Revision history for JS::Minifier
 
 {{$NEXT}}
-
-    - Fix get() guard missing return and off-by-one (<=) causing
-      out-of-bounds reads
-    - Fix put-literal line continuation (backslash before newline)
-      outputting the backslash before detecting the newline
-    - Fix EOF handler sending literal '\n' instead of actual newline;
-      preserve-endspace already handles trailing newlines correctly
-    - Update tests for corrected trailing newline behavior
-    - Add test coverage gaps: bare console with drop_console,
-      strip_debug at EOF, copyright+nocompress, bang-comments+nocompress,
-      nested template literals, true/false in object keys, combo flags
-    - Add full CLI test suite (t/03-cli.rakutest) covering stdin,
-      --nocompress, --check, --version, --help, -o, file args,
-      -s, -b, --drop-debugger
-    - Fix is-postfix/is-infix/is-alphanum returning True for empty
-      strings ('.contains("")' always returned True)
-    - Fix put-literal unterminated string detection (when !$delimiter
-      smartmatched against Bool False, never triggering)
-    - Fix process-comments misclassifying return/regex as division;
-      added is-regex-start helper for keywords that start regex
-      literals (return, typeof, throw, delete, void, case, new, in, instanceof)
-
     - Fork of JS::Minify by Sam Morrison
     - Rename module from JS::Minify to JS::Minifier
     - Rename .pm6 to .rakumod, .t to .rakutest
-    - All-new CLI tool bin/jsminify with --drop-console, --drop-debugger,
-      --keep-bang-comments, --nocompress, --strip-debug, --check,
-      --copyright, --output
-    - Translate documentation and tooling from Perl 6 / perl6 to Raku / raku
+    - All-new CLI tool bin/jsminify with --drop-console,
+    --drop-debugger, --keep-bang-comments, --nocompress,
+    --strip-debug, --check, --copyright, --output
+    - Translate documentation and tooling from Perl 6 / perl6 to Raku
+      / raku
     - Add shebang (#!) preservation
     - Add bang-comment (/*! */) preservation
-    - Add template literal (backtick string) support with ${} interpolation
+    - Add template literal (backtick string) support with ${}
+      interpolation
     - Add NOCOMPRESS block support (/* BEGIN/END NOCOMPRESS */)
     - Add drop_console option to remove console.* calls
     - Add drop_debugger option to remove debugger; statements
@@ -41,6 +21,29 @@ Revision history for JS::Minifier
     - Strip multi-line string continuations (\\ + newline)
     - Track line and column numbers for better error messages
     - Export js-minify alias for backward compatibility
-    - Update META6.json with new maintainer, auth, version 1.0.0, source URL
+    - Update META6.json with new maintainer, auth, version 1.0.0,
+      source URL
     - Update .travis.yml for Raku ecosystem
     - Add comprehensive test coverage for all new features
+    - Fix get() guard missing return and off-by-one (<=) causing
+      out-of-bounds reads
+    - Fix put-literal line continuation (backslash before newline)
+      outputting the backslash before detecting the newline
+    - Fix EOF handler sending literal '\n' instead of actual newline;
+      preserve-endspace already handles trailing newlines correctly
+    - Update tests for corrected trailing newline behavior
+    - Add test coverage gaps: bare console with drop_console,
+      strip_debug at EOF, copyright+nocompress,
+      bang-comments+nocompress, nested template literals, true/false
+      in object keys, combo flags
+    - Add full CLI test suite (t/03-cli.rakutest) covering stdin,
+    --nocompress, --check, --version, --help, -o, file args, -s, -b,
+    --drop-debugger
+    - Fix is-postfix/is-infix/is-alphanum returning True for empty
+      strings ('.contains("")' always returned True)
+    - Fix put-literal unterminated string detection (when !$delimiter
+      smartmatched against Bool False, never triggering)
+    - Fix process-comments misclassifying return/regex as division;
+      added is-regex-start helper for keywords that start regex
+      literals (return, typeof, throw, delete, void, case, new, in,
+      instanceof)
