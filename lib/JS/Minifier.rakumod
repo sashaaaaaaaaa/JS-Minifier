@@ -3,7 +3,7 @@ use v6;
 unit module JS::Minifier;
 
 sub is-alphanum(Str $x) returns Bool {
-  ord($x) > 126 || '$\\'.contains($x) || $x ~~ / \w /.Bool;
+  so $x.chars && (ord($x) > 126 || '$\\'.contains($x) || $x ~~ / \w /.Bool);
 }
 
 sub is-endspace(Str $x) returns Bool {
@@ -15,15 +15,15 @@ sub is-whitespace(Str $x) returns Bool {
 }
 
 sub is-infix(Str $x) returns Bool {
-  ",;:=&%*<>?|\n".contains: $x;
+  so $x.chars && ",;:=&%*<>?|\n".contains: $x;
 }
 
 sub is-prefix(Str $x) returns Bool {
-  '{([!'.contains($x) || is-infix $x;
+  so $x.chars && ('{([!'.contains($x) || is-infix $x);
 }
 
 sub is-postfix(Str $x) returns Bool {
-  '})]'.contains: $x;
+  so $x.chars && '})]'.contains: $x;
 }
 
 sub get(%s) returns List {
@@ -125,12 +125,12 @@ sub put-literal(%s is copy) returns Hash {
   }
 
   given %s<last> {
-    when !$delimiter {
+    when $delimiter { %s }
+    default {
       die 'unterminated single quoted string literal, stopped' if $delimiter eq '\'';
       die 'unterminated double quoted string literal, stopped' if $delimiter eq '"';
       die 'unterminated regular expression literal, stopped';
     }
-    default { %s }
   }
 }
 

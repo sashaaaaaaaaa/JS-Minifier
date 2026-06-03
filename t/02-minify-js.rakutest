@@ -4,7 +4,7 @@ use Test::Output;
 use lib 'lib';
 use JS::Minifier;
 
-plan 33;
+plan 40;
 
 sub min-test($filename) {
   my $infile = open("t/scripts/$filename.js") or die("couldn't open file");
@@ -62,3 +62,25 @@ is js-minifier(input => 'debugger;'), 'debugger;', 'debugger kept by default';
 
 is js-minifier(input => '`hello ${name} world`'), '`hello ${name} world`', 'template literal';
 is js-minifier(input => '`escaped \\` backtick`'), '`escaped \\` backtick`', 'template literal with escaped backtick';
+
+# gap tests
+
+is js-minifier(input => 'console;', :drop_console), 'console;', 'bare console not dropped';
+
+is js-minifier(input => "x\n;;;y", :strip_debug), "x\n\\n", 'strip_debug strips ;;;y at end of input';
+
+is js-minifier(input => '/* BEGIN NOCOMPRESS */ raw ; /* END NOCOMPRESS */', copyright => 'MIT', :nocompress),
+   '/* MIT */ raw ; ',
+   'copyright with nocompress';
+
+is js-minifier(input => '/*! license */ /* BEGIN NOCOMPRESS */ raw /* END NOCOMPRESS */', :keep_bang_comments, :nocompress),
+   '/*! license*/ raw ',
+   'bang comments with nocompress';
+
+is js-minifier(input => '`outer ${ `inner ${x}` } end`'), '`outer ${ `inner ${x}` } end`', 'nested template literal';
+
+is js-minifier(input => '{true: 1, false: 2}'), '{!0:1,!1:2}', 'true/false shortened even in object keys (known caveat)';
+
+is js-minifier(input => ";;;debug\nconsole.log('x');\ndebugger;", :strip_debug, :drop_console, :drop_debugger),
+   '',
+   'combo strip_debug + drop_console + drop_debugger';

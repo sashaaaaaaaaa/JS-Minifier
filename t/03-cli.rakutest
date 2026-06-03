@@ -1,0 +1,96 @@
+use v6;
+use Test;
+use lib 'lib';
+
+plan 13;
+
+# 1-2: stdin basic
+{
+  my $p = run('raku', 'bin/jsminify', :in, :out, :err);
+  $p.in.print('var x = 1;');
+  $p.in.close;
+  is $p.out.slurp(:close), "var x=1;", 'stdin minification';
+  is $p.exitcode, 0, 'stdin exit 0';
+}
+
+# 3: --nocompress via stdin
+{
+  my $p = run('raku', 'bin/jsminify', '--nocompress', :in, :out, :err);
+  $p.in.print('x; /* BEGIN NOCOMPRESS */ y ; /* END NOCOMPRESS */');
+  $p.in.close;
+  is $p.out.slurp(:close), "x; y ; ", '--nocompress flag preserves block';
+}
+
+# 4-5: --check no files (valid by default)
+{
+  my $p = run('raku', 'bin/jsminify', '--check', :out, :err);
+  is $p.out.slurp(:close), '', '--check no files: no output';
+  is $p.exitcode, 0, '--check no files: exit 0';
+}
+
+# 6: --check with unterminated NOCOMPRESS block (throws in main thread)
+{
+  my $tmp = '/tmp/jsminify-test-bad.js';
+  spurt $tmp, '/* BEGIN NOCOMPRESS */';
+  my $p = run('raku', 'bin/jsminify', '--check', '--nocompress', $tmp, :out, :err);
+  is $p.exitcode, 1, '--check bad input: exit 1';
+  unlink $tmp;
+}
+
+# 7: --version
+{
+  my $p = run('raku', 'bin/jsminify', '--version', :out, :err);
+  my $ver = $p.out.slurp(:close);
+  like $ver, /'JS::Minifier v'\d+'.'\d+'.'\d+/, '--version output';
+}
+
+# 8: --help
+{
+  my $p = run('raku', 'bin/jsminify', '--help', :out, :err);
+  my $help = $p.out.slurp(:close);
+  like $help, /'Usage:'/, '--help output contains Usage';
+}
+
+# 9: -o output file
+{
+  my $tmp_out = '/tmp/jsminify-test-out.js';
+  my $p = run('raku', 'bin/jsminify', '-o', $tmp_out, :in, :out, :err);
+  $p.in.print('var x = 2;');
+  $p.in.close;
+  $p.out.slurp(:close);
+  is slurp($tmp_out), "var x=2;", '-o writes to output file';
+  unlink $tmp_out;
+}
+
+# 10: file arg
+{
+  my $tmp = '/tmp/jsminify-test-file.js';
+  spurt $tmp, 'var x = 3;';
+  my $p = run('raku', 'bin/jsminify', $tmp, :out, :err);
+  is $p.out.slurp(:close), "var x=3;", 'file arg minification';
+  unlink $tmp;
+}
+
+# 11: -s strip-debug flag
+{
+  my $p = run('raku', 'bin/jsminify', '-s', :in, :out, :err);
+  $p.in.print("var x = 2;\n;;;alert('hi');\nvar x = 2;");
+  $p.in.close;
+  is $p.out.slurp(:close), "var x=2;var x=2;", '-s strip-debug flag';
+}
+
+# 12: -b keep-bang-comments flag
+{
+  my $p = run('raku', 'bin/jsminify', '-b', :in, :out, :err);
+  $p.in.print('var x = 1; /*! license */');
+  $p.in.close;
+  like $p.out.slurp(:close), /'/*! license'/, '-b keep-bang-comments flag';
+}
+
+# 13: --drop-debugger flag
+{
+  my $p = run('raku', 'bin/jsminify', '--drop-debugger', :in, :out, :err);
+  $p.in.print('debugger;');
+  $p.in.close;
+  is $p.out.slurp(:close), '', '--drop-debugger flag';
+}
