@@ -266,9 +266,13 @@ multi sub process-comments(%s is copy where {%s<b> eq '*'}) returns Hash {
   }
 }
 
+sub is-regex-start(Str $w) returns Bool {
+  so $w eq any(<return typeof throw delete void case new in instanceof>);
+}
+
 multi sub process-comments(%s is copy where {%s<lastnws> &&
                            (')].'.contains(%s<lastnws>) ||
-                           is-alphanum(%s<lastnws>))}) returns Hash {
+                           (is-alphanum(%s<lastnws>) && !is-regex-start(%s<lastnws>)))}) returns Hash {
   %s.&step-chr-a.&collapse-whitespace.&process-conditional-comment;
 }
 

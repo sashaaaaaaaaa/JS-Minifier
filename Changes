@@ -19,6 +19,9 @@ Revision history for JS::Minifier
       strings ('.contains("")' always returned True)
     - Fix put-literal unterminated string detection (when !$delimiter
       smartmatched against Bool False, never triggering)
+    - Fix process-comments misclassifying return/regex as division;
+      added is-regex-start helper for keywords that start regex
+      literals (return, typeof, throw, delete, void, case, new, in, instanceof)
 
     - Fork of JS::Minify by Sam Morrison
     - Rename module from JS::Minify to JS::Minifier
