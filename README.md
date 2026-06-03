@@ -120,7 +120,7 @@ You can obtain the latest source code and submit bug reports on the github repos
 
 # Author
 
-* Sasha Abbott, [sashaa](https://github.com/sashaaaaaaaaa), &lt;sashaa@disroot.org&gt;
+* Sasha Abbott, [sashaaaaaaaaa](https://github.com/sashaaaaaaaaa), &lt;sashaa@disroot.org&gt;
 
 ## JS::Minifier is based on JS::Minify by:
 
