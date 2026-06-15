@@ -437,6 +437,14 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
 
   my Str @input_list = $preprocessed.split("", :skip-empty).cache;
 
+  unless @input_list {
+    my $empty_result = $copyright ?? "/* $copyright */" !! '';
+    return $empty_result unless $stream ~~ Channel;
+    $stream.send($empty_result) if $empty_result.chars;
+    $stream.close;
+    return;
+  }
+
   my %s = input             => @input_list,
           last_read_char    => 0,
           input_pos         => 0,
