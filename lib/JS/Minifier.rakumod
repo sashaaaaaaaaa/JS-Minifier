@@ -271,7 +271,7 @@ multi sub process-comments(%s where {%s<lastnws> &&
   %s.&step-chr-a.&collapse-whitespace.&process-conditional-comment;
 }
 
-multi sub process-comments(%s where {%s<a> eq '/' and %s<b> eq '.' }) returns Hash {
+multi sub process-comments(%s where {%s<a> eq '/' and %s<b> eq '.' and !is-regex-start(%s<lastnws> // '')}) returns Hash {
   %s.&collapse-whitespace.&step-chr-a;
 }
 
@@ -346,7 +346,8 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   given $id {
     when 'true'  {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
+      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
+        || is-regex-start(%s<lastnws> // '') {
         %s<output>.send('true');
       } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
         %s<output>.send('true');
@@ -357,7 +358,8 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
       }
     }
     when 'false' {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
+      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
+        || is-regex-start(%s<lastnws> // '') {
         %s<output>.send('false');
       } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
         %s<output>.send('false');
@@ -422,7 +424,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$drop_debugger = False,
                 Bool :$nocompress = False) is export {
 
-  my Str $input_new = ($input.WHAT ~~ Str ?? $input !! $input.readchars.chomp);
+  my Str $input_new = $input.WHAT ~~ Str ?? $input !! $input.readchars;
 
   my Str $preprocessed = $input_new;
   my %nocompress_blocks;
