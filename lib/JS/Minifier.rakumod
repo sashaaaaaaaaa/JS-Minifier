@@ -79,6 +79,9 @@ sub put-literal(%s) returns Hash {
         next;
       }
       if $brace-depth > 0 {
+        if !%s<a> {
+          die 'unterminated template literal expression, stopped';
+        }
         if %s<a> eq '`' || %s<a> eq "'" || %s<a> eq '"' || (%s<a> eq '/' && is-regex-start(%s<lastnws>)) {
           %s = put-literal %s;
           next;
@@ -155,7 +158,7 @@ sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bo
 }
 
 sub process-conditional-comment(%s) returns Hash {
-  if on-whitespace-conditional-comment(|%s{'a' .. 'd'}) {
+  if on-whitespace-conditional-comment(%s<a>, %s<b>, %s<c>, %s<d>) {
     step-chr-a(%s);
     %s;
   } else {
@@ -371,12 +374,12 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
     %s<output>.send($id);
   }
   %s<lastnws> = $id;
-  %s<last>    = $id;
+  %s<last>    = $id.substr(*-1, 1);
   collapse-whitespace(%s);
   process-property-invocation(%s);
 }
 
-multi sub process-char(%s where { ';'.contains(%s<a>) }) returns Hash {
+multi sub process-char(%s where { %s<a> eq ';' }) returns Hash {
   while is-whitespace(%s<b>) {
     delete-chr-b(%s);
   }
@@ -534,8 +537,9 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
     %s<output>.send: 'exit';
   }
 
-  my $result = $output.result unless $stream ~~ Channel;
+  my $result = $output.result;
   die $minify_error if $minify_error;
+  return if $stream ~~ Channel;
 
   if $nocompress && %nocompress_blocks {
     for %nocompress_blocks.kv -> $key, $value {
