@@ -297,11 +297,12 @@ multi sub process-char(%s where { '+-'.contains(%s<a>) }) returns Hash {
 }
 
 multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
-  my Str $id = '';
+  my @id;
   while %s<a> && is-alphanum(%s<a>) {
-    $id ~= %s<a>;
+    @id.push(%s<a>);
     %s = delete-chr-a %s;
   }
+  my Str $id = @id.join;
 
   if $id eq 'debugger' && %s<drop_debugger> {
     %s = collapse-whitespace %s;
@@ -319,11 +320,12 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
     if %s<a> eq '.' {
       %s = delete-chr-a %s;
       %s = collapse-whitespace %s;
-      my $method = '';
+      my @method;
       while %s<a> && is-alphanum(%s<a>) {
-        $method ~= %s<a>;
+        @method.push(%s<a>);
         %s = delete-chr-a %s;
       }
+      my $method = @method.join;
       %s = collapse-whitespace %s;
       if %s<a> eq '(' {
         %s = skip-matching-paren %s, '(', ')';
