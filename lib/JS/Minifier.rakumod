@@ -305,8 +305,6 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
       %s = delete-chr-a %s;
     }
     %s = skip-whitespace %s;
-    %s<lastnws> = ';';
-    %s<last> = ';';
     return %s;
   }
 
@@ -329,8 +327,6 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
           %s = delete-chr-a %s;
         }
         %s = skip-whitespace %s;
-        %s<lastnws> = ';';
-        %s<last> = ';';
         return %s;
       }
       %s<output>.send('console.' ~ $method);
