@@ -3,11 +3,11 @@ use v6;
 unit module JS::Minifier;
 
 sub is-alphanum(Str $x) returns Bool {
-  so $x.chars && (ord($x) > 126 || '$\\'.contains($x) ||
-    ord($x) > 47 && ord($x) < 58 ||
-    ord($x) > 64 && ord($x) < 91 ||
-    ord($x) == 95 ||
-    ord($x) > 96 && ord($x) < 123);
+  so $x ne "" && ($x gt '~' || '$\\'.contains($x) ||
+    $x ~~ '0'..'9' ||
+    $x ~~ 'A'..'Z' ||
+    $x eq '_' ||
+    $x ~~ 'a'..'z');
 }
 
 sub is-endspace(Str $x) returns Bool {
@@ -15,19 +15,19 @@ sub is-endspace(Str $x) returns Bool {
 }
 
 sub is-whitespace(Str $x) returns Bool {
-  $x.chars && (ord($x) == 32 || ord($x) == 9) || is-endspace $x;
+  $x ne "" && (ord($x) == 32 || ord($x) == 9) || is-endspace $x;
 }
 
 sub is-infix(Str $x) returns Bool {
-  so $x.chars && ",;:=&%*<>?|\n".contains: $x;
+  so $x ne "" && ",;:=&%*<>?|\n".contains: $x;
 }
 
 sub is-prefix(Str $x) returns Bool {
-  so $x.chars && ('{([!'.contains($x) || is-infix $x);
+  so $x ne "" && ('{([!'.contains($x) || is-infix $x);
 }
 
 sub is-postfix(Str $x) returns Bool {
-  so $x.chars && '})]'.contains: $x;
+  so $x ne "" && '})]'.contains: $x;
 }
 
 sub get(%s) returns List {
@@ -262,7 +262,7 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
 }
 
 sub is-regex-start(Str $w) returns Bool {
-  so $w eq any(<return typeof throw delete void case new in instanceof yield export import extends super>);
+  so <return typeof throw delete void case new in instanceof yield export import extends super await>.Set{$w};
 }
 
 multi sub process-comments(%s where {%s<lastnws> &&
@@ -486,7 +486,8 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
     }
     @shebang_line.push("\n") if $idx < @input_list.elems && @input_list[$idx] eq "\n";
     %s<output>.send('#!' ~ @shebang_line.join);
-    %s<input_pos> = $idx + 1;
+    %s<input_pos> = $idx;
+    %s<input_pos>++ if $idx < @input_list.elems && @input_list[$idx] eq "\n";
     if %s<input_pos> >= @input_list.elems {
       %s<output>.send('exit');
       return $output.result unless $stream ~~ Channel;
