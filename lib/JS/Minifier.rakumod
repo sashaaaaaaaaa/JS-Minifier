@@ -11,7 +11,7 @@ sub is-alphanum(Str $x) returns Bool {
 }
 
 sub is-endspace(Str $x) returns Bool {
-  $x ~~ "\n"|"\f"|"\r";
+  "\n\f\r".contains($x);
 }
 
 sub is-whitespace(Str $x) returns Bool {
@@ -261,8 +261,11 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
   }
 }
 
+my constant $REGEX-START = set <return typeof throw delete void case new in instanceof yield export import extends super await>;
+my constant $VAR-LET-CONST = set <var let const>;
+
 sub is-regex-start(Str $w) returns Bool {
-  so <return typeof throw delete void case new in instanceof yield export import extends super await>.Set{$w};
+  so $w ∈ $REGEX-START;
 }
 
 multi sub process-comments(%s where {%s<lastnws> &&
@@ -344,7 +347,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   my %shorten = 'true' => '!0', 'false' => '!1';
   if %shorten{$id}:exists {
-    if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
+    if (%s<lastnws> // '') ∈ $VAR-LET-CONST || %s<lastnws> eq '.'
         || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')
         || %s<a> eq '(' {
       %s<output>.send($id);
