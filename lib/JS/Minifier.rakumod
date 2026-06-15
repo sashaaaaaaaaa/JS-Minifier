@@ -334,11 +334,13 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
         return %s;
       }
       %s<output>.send('console.' ~ $method);
+      %s<lastnws> = $method;
+      %s<last> = $method.substr(*-1, 1);
     } else {
       %s<output>.send('console');
+      %s<lastnws> = 'console';
+      %s<last>    = 'console';
     }
-    %s<lastnws> = 'console';
-    %s<last> = 'console';
     %s = collapse-whitespace %s;
     %s = process-property-invocation %s;
     return %s;
@@ -525,7 +527,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
 
   if $nocompress && %nocompress_blocks {
     for %nocompress_blocks.kv -> $key, $value {
-      $result = $result.subst($key, $value, :g);
+      $result .= subst($key, $value, :g) with $result;
     }
   }
 
