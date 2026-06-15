@@ -3,7 +3,11 @@ use v6;
 unit module JS::Minifier;
 
 sub is-alphanum(Str $x) returns Bool {
-  so $x.chars && (ord($x) > 126 || '$\\'.contains($x) || $x ~~ / \w /.Bool);
+  so $x.chars && (ord($x) > 126 || '$\\'.contains($x) ||
+    ord($x) > 47 && ord($x) < 58 ||
+    ord($x) > 64 && ord($x) < 91 ||
+    ord($x) == 95 ||
+    ord($x) > 96 && ord($x) < 123);
 }
 
 sub is-endspace(Str $x) returns Bool {
@@ -11,7 +15,7 @@ sub is-endspace(Str $x) returns Bool {
 }
 
 sub is-whitespace(Str $x) returns Bool {
-  $x ~~ / \h /.Bool || is-endspace $x;
+  $x.chars && (ord($x) == 32 || ord($x) == 9) || is-endspace $x;
 }
 
 sub is-infix(Str $x) returns Bool {
@@ -27,24 +31,17 @@ sub is-postfix(Str $x) returns Bool {
 }
 
 sub get(%s) returns List {
-  given %s<input>.elems {
-    when *>0 {
-      return ["", %s<last_read_char>, %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
-      my $raw = %s<input>[%s<input_pos>];
-      my Str $char = $raw // "";
-      my Str $last_read_char = %s<input>[%s<input_pos>++] // "";
-      if $char eq "\n" {
-        %s<line>++;
-        %s<column> = 0;
-      } else {
-        %s<column>++;
-      }
-      $char, $last_read_char, %s<input_pos>;
-    }
-    default {
-      die 'no input';
-    }
+  return ["", %s<cur_char>, %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
+  my $raw = %s<input>[%s<input_pos>];
+  my Str $char = $raw // "";
+  my Str $cur_char = %s<input>[%s<input_pos>++] // "";
+  if $char eq "\n" {
+    %s<line>++;
+    %s<column> = 0;
+  } else {
+    %s<column>++;
   }
+  $char, $cur_char, %s<input_pos>;
 }
 
 sub step-chr-a(%s) returns Hash {
@@ -65,7 +62,7 @@ sub delete-chr-a(%s) returns Hash {
 
 sub delete-chr-b(%s) returns Hash {
   (%s<b>, %s<c>) = (%s<c>, %s<d>);
-  (%s<d>, %s<last_read_char>, %s<input_pos>) = get %s;
+  (%s<d>, %s<cur_char>, %s<input_pos>) = get %s;
   return %s;
 }
 
@@ -154,7 +151,7 @@ sub preserve-endspace(%s) returns Hash {
   if is-endspace(%s<a>) && !is-postfix(%s<b>) {
     %s = step-chr-a(%s);
   }
-  skip-whitespace(%s);
+  skip-whitespace(%s)
  }
 
 sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bool {
@@ -262,7 +259,7 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
 }
 
 sub is-regex-start(Str $w) returns Bool {
-  so $w eq any(<return typeof throw delete void case new in instanceof>);
+  so $w eq any(<return typeof throw delete void case new in instanceof yield export import extends super>);
 }
 
 multi sub process-comments(%s where {%s<lastnws> &&
@@ -410,12 +407,12 @@ multi sub output-manager(Channel $output, Channel $stream) returns Promise {
 
 multi sub output-manager(Channel $output) returns Promise {
   start {
-    my Str $output_text = '';
+    my Str @buf;
     $output.list.map: -> $c {
       last if $c eq 'exit';
-      $output_text ~= $c;
+      @buf.push($c);
     }
-    $output_text;
+    @buf.join;
   }
 }
 
@@ -446,7 +443,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
       my $end = index($preprocessed, '/* END NOCOMPRESS */', $begin);
       die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
       my $block = substr($preprocessed, $begin + 22, $end - $begin - 22);
-      my $key = "\x0N" ~ $idx ~ "N\x0";
+      my $key = "\x00N" ~ $idx ~ "N\x00";
       %nocompress_blocks{$key} = $block;
       $processed ~= $key;
       $pos = $end + 20;
@@ -456,7 +453,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
     $preprocessed = $processed;
   }
 
-  my Str @input_list = $preprocessed.split("", :skip-empty).cache;
+  my Str @input_list = $preprocessed.comb;
 
   unless @input_list {
     my $empty_result = $copyright ?? "/* $copyright */" !! '';
@@ -467,7 +464,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   }
 
   my %s = input             => @input_list,
-          last_read_char    => 0,
+          cur_char    => 0,
           input_pos         => 0,
           output            => Channel.new,
           last              => Str,
@@ -506,11 +503,11 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   }
 
   repeat {
-    (%s<a>, %s<last_read_char>, %s<input_pos>) = get %s;
+    (%s<a>, %s<cur_char>, %s<input_pos>) = get %s;
   } while (%s<a> && is-whitespace(%s<a>));
-  (%s<b>, %s<last_read_char>, %s<input_pos>)   = get %s;
-  (%s<c>, %s<last_read_char>, %s<input_pos>)   = get %s;
-  (%s<d>, %s<last_read_char>, %s<input_pos>)   = get %s;
+  (%s<b>, %s<cur_char>, %s<input_pos>)   = get %s;
+  (%s<c>, %s<cur_char>, %s<input_pos>)   = get %s;
+  (%s<d>, %s<cur_char>, %s<input_pos>)   = get %s;
 
   start {
     while %s<a> {
