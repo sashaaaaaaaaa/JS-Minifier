@@ -162,28 +162,27 @@ sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bo
 }
 
 sub process-conditional-comment(%s) returns Hash {
-  given on-whitespace-conditional-comment(|%s{'a' .. 'd'}) {
-    when * eq True { step-chr-a %s }
-    default { preserve-endspace %s }
+  if on-whitespace-conditional-comment(|%s{'a' .. 'd'}) {
+    step-chr-a %s
+  } else {
+    preserve-endspace %s
   }
 }
 
 sub process-double-plus-minus(%s) returns Hash {
-  given %s<a> {
-    when is-whitespace(%s<a>) {
-      (%s<b> eq %s<last>) ?? step-chr-a(%s) !! preserve-endspace(%s);
-    }
-    default { %s }
+  if is-whitespace(%s<a>) {
+    (%s<b> eq %s<last>) ?? step-chr-a(%s) !! preserve-endspace(%s);
+  } else {
+    %s
   }
-};
+}
 
 sub process-property-invocation(%s) returns Hash {
-  (given %s<a> {
-     when $_ && is-whitespace($_) {
-      (%s<b> && (is-alphanum(%s<b>) || %s<b> eq '.')) ?? step-chr-a(%s) !! preserve-endspace(%s);
-     }
-     default { %s }
-   });
+  if %s<a> && is-whitespace(%s<a>) {
+    (%s<b> && (is-alphanum(%s<b>) || %s<b> eq '.')) ?? step-chr-a(%s) !! preserve-endspace(%s);
+  } else {
+    %s
+  }
 }
 
 sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
@@ -206,17 +205,13 @@ multi sub process-comments(%s where {%s<b> eq '/'}) returns Hash {
     %s = $cc_flag ?? send-chr-out %s !! delete-chr-a %s;
   } until (!%s<a> || is-endspace(%s<a>));
 
-  (given $cc_flag {
-     when $_ {
-       %s.&step-chr-a.&skip-whitespace;
-     }
-     when %s<last> && !is-endspace(%s<last>) && !is-prefix(%s<last>) {
-       return preserve-endspace %s;
-     }
-     default {
-       return skip-whitespace %s;
-     }
-  });
+  if $cc_flag {
+    %s.&step-chr-a.&skip-whitespace;
+  } elsif %s<last> && !is-endspace(%s<last>) && !is-prefix(%s<last>) {
+    return preserve-endspace %s;
+  } else {
+    return skip-whitespace %s;
+  }
 }
 
 multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
