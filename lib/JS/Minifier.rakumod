@@ -343,30 +343,17 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
     return %s;
   }
 
-  given $id {
-    when 'true'  {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
-        %s<output>.send('true');
-      } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
-        %s<output>.send('true');
-      } elsif (%s<a> eq '(') {
-        %s<output>.send('true');
-      } else {
-        %s<output>.send('!0');
-      }
+  my %shorten = 'true' => '!0', 'false' => '!1';
+  if %shorten{$id}:exists {
+    if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
+        || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')
+        || %s<a> eq '(' {
+      %s<output>.send($id);
+    } else {
+      %s<output>.send(%shorten{$id});
     }
-    when 'false' {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
-        %s<output>.send('false');
-      } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
-        %s<output>.send('false');
-      } elsif (%s<a> eq '(') {
-        %s<output>.send('false');
-      } else {
-        %s<output>.send('!1');
-      }
-    }
-    default      { %s<output>.send($id) }
+  } else {
+    %s<output>.send($id);
   }
   %s<lastnws> = $id;
   %s<last>    = $id;

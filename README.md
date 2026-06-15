@@ -11,7 +11,7 @@ JS::Minifier is considered safe:
 
 ## Additional features over JS::Minify
 
-- CLI tool (`bin/jsminify`)
+- CLI tool (`bin/jsminify`) with `--check` and `--output`
 - Template literal (backtick) support with `${}` interpolation
 - Bang-comment preservation (`/*! ... */` via `--keep-bang-comments`)
 - `true`/`false` → `!0`/`!1` shortening
@@ -116,7 +116,7 @@ Exported by default: `js-minifier()` (and `js-minify()` as an alias)
 # Repository
 
 You can obtain the latest source code and submit bug reports on the github repository for this module:
-[https://github.com/sashaaaaaaaaa/JS-Minify](https://github.com/sashaaaaaaaaa/JS-Minify).
+[https://github.com/sashaaaaaaaaa/JS-Minifier](https://github.com/sashaaaaaaaaa/JS-Minifier).
 
 # Author
 
