@@ -345,8 +345,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   given $id {
     when 'true'  {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
-        || is-regex-start(%s<lastnws> // '') {
+      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
         %s<output>.send('true');
       } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
         %s<output>.send('true');
@@ -357,8 +356,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
       }
     }
     when 'false' {
-      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.'
-        || is-regex-start(%s<lastnws> // '') {
+      if (%s<lastnws> // '') eq any(<var let const>) || %s<lastnws> eq '.' {
         %s<output>.send('false');
       } elsif (%s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')) {
         %s<output>.send('false');
@@ -436,24 +434,26 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   }
 
   if $nocompress {
-    my $processed = '';
+    constant $BEGIN_TAG = '/* BEGIN NOCOMPRESS */';
+    constant $END_TAG   = '/* END NOCOMPRESS */';
+    my Str @processed;
     my $pos = 0;
     my $idx = 0;
     loop {
-      my $begin = index($preprocessed, '/* BEGIN NOCOMPRESS */', $pos);
+      my $begin = index($preprocessed, $BEGIN_TAG, $pos);
       last unless $begin.defined;
-      $processed ~= substr($preprocessed, $pos, $begin - $pos);
-      my $end = index($preprocessed, '/* END NOCOMPRESS */', $begin);
+      @processed.push(substr($preprocessed, $pos, $begin - $pos));
+      my $end = index($preprocessed, $END_TAG, $begin);
       die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
-      my $block = substr($preprocessed, $begin + 22, $end - $begin - 22);
+      my $block = substr($preprocessed, $begin + $BEGIN_TAG.chars, $end - $begin - $BEGIN_TAG.chars);
       my $key = "\x00N" ~ $idx ~ "N\x00";
       %nocompress_blocks{$key} = $block;
-      $processed ~= $key;
-      $pos = $end + 20;
+      @processed.push($key);
+      $pos = $end + $END_TAG.chars;
       $idx++;
     }
-    $processed ~= substr($preprocessed, $pos);
-    $preprocessed = $processed;
+    @processed.push(substr($preprocessed, $pos));
+    $preprocessed = @processed.join;
   }
 
   my Str @input_list = $preprocessed.comb;
