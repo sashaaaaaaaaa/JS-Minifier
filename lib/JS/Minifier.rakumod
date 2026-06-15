@@ -158,7 +158,7 @@ sub preserve-endspace(%s) returns Hash {
  }
 
 sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bool {
-  is-whitespace($a) && $b eq '/' && ('/*'.contains($c) &&  $d eq '@').Bool;
+  is-whitespace($a) && $b eq '/' && ($c eq '/' || $c eq '*') && $d eq '@';
 }
 
 sub process-conditional-comment(%s) returns Hash {
