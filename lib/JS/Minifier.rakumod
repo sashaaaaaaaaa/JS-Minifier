@@ -192,12 +192,9 @@ sub process-property-invocation(%s) returns Hash {
 
 sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
   my Int $depth = 1;
-  while $depth > 0 && %s<a> {
-    if %s<a> eq $open {
-      $depth++;
-    } elsif %s<a> eq $close {
-      $depth--;
-    }
+  while $depth && %s<a> {
+    if %s<a> eq $open  { $depth++; }
+    if %s<a> eq $close { $depth--; }
     delete-chr-a(%s);
   }
   return %s;
@@ -345,7 +342,8 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
         %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
         if %s<a> eq '(' {
-        %s = skip-matching-paren %s, '(', ')';
+          delete-chr-a(%s);
+          %s = skip-matching-paren %s, '(', ')';
         %s = collapse-whitespace %s;
         if %s<a> eq ';' {
           delete-chr-a(%s);
