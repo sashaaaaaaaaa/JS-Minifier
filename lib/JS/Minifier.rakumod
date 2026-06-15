@@ -370,14 +370,16 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
         || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<b> eq ':')
         || %s<a> eq '(' {
       %s<output>.send($id);
+      %s<last> = $id.substr(*-1, 1);
     } else {
       %s<output>.send(%shorten{$id});
+      %s<last> = %shorten{$id}.substr(*-1, 1);
     }
   } else {
     %s<output>.send($id);
+    %s<last> = $id.substr(*-1, 1);
   }
   %s<lastnws> = $id;
-  %s<last>    = $id.substr(*-1, 1);
   collapse-whitespace(%s);
   process-property-invocation(%s);
 }
