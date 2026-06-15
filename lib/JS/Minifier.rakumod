@@ -31,17 +31,16 @@ sub is-postfix(Str $x) returns Bool {
 }
 
 sub get(%s) returns List {
-  return ["", %s<cur_char>, %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
-  my $raw = %s<input>[%s<input_pos>];
-  my Str $char = $raw // "";
-  my Str $cur_char = %s<input>[%s<input_pos>++] // "";
+  return ["", %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
+  my Str $char = %s<input>[%s<input_pos>] // "";
+  %s<input_pos>++;
   if $char eq "\n" {
     %s<line>++;
     %s<column> = 0;
   } else {
     %s<column>++;
   }
-  $char, $cur_char, %s<input_pos>;
+  $char, %s<input_pos>;
 }
 
 sub step-chr-a(%s) returns Hash {
@@ -62,7 +61,7 @@ sub delete-chr-a(%s) returns Hash {
 
 sub delete-chr-b(%s) returns Hash {
   (%s<b>, %s<c>) = (%s<c>, %s<d>);
-  (%s<d>, %s<cur_char>, %s<input_pos>) = get %s;
+  (%s<d>, %s<input_pos>) = get %s;
   return %s;
 }
 
@@ -87,6 +86,10 @@ sub put-literal(%s) returns Hash {
         next;
       }
       if $brace-depth > 0 {
+        if %s<a> eq '`' || %s<a> eq "'" || %s<a> eq '"' || (%s<a> eq '/' && is-regex-start(%s<lastnws>)) {
+          %s = put-literal %s;
+          next;
+        }
         if %s<a> eq '{' {
           $brace-depth++;
         } elsif %s<a> eq '}' {
@@ -454,7 +457,6 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   }
 
   my %s = input             => @input_list,
-          cur_char    => 0,
           input_pos         => 0,
           output            => Channel.new,
           last              => Str,
@@ -493,25 +495,31 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   }
 
   repeat {
-    (%s<a>, %s<cur_char>, %s<input_pos>) = get %s;
+    (%s<a>, %s<input_pos>) = get %s;
   } while (%s<a> && is-whitespace(%s<a>));
-  (%s<b>, %s<cur_char>, %s<input_pos>)   = get %s;
-  (%s<c>, %s<cur_char>, %s<input_pos>)   = get %s;
-  (%s<d>, %s<cur_char>, %s<input_pos>)   = get %s;
+  (%s<b>, %s<input_pos>)   = get %s;
+  (%s<c>, %s<input_pos>)   = get %s;
+  (%s<d>, %s<input_pos>)   = get %s;
 
-  start {
-    try {
-      while %s<a> {
-        if (is-whitespace(%s<a>)) {
-          die 'minifier bug: minify while loop starting with whitespace, stopped';
-        }
-        %s = process-char %s;
-      };
+  my $minify_error;
+  my $minify_promise = start {
+    while %s<a> {
+      if (is-whitespace(%s<a>)) {
+        die 'minifier bug: minify while loop starting with whitespace, stopped';
+      }
+      %s = process-char %s;
+    }
+    CATCH {
+      default {
+        $minify_error = $_;
+        %s<output>.send: 'exit';
+      }
     }
     %s<output>.send: 'exit';
   }
 
   my $result = $output.result unless $stream ~~ Channel;
+  die $minify_error if $minify_error;
 
   if $nocompress && %nocompress_blocks {
     for %nocompress_blocks.kv -> $key, $value {
