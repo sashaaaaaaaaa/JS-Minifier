@@ -15,7 +15,7 @@ sub is-endspace(Str $x) returns Bool {
 }
 
 sub is-whitespace(Str $x) returns Bool {
-  $x ne "" && (ord($x) == 32 || ord($x) == 9) || is-endspace $x;
+  ($x ne "" && (ord($x) == 32 || ord($x) == 9)) || is-endspace $x;
 }
 
 sub is-infix(Str $x) returns Bool {
@@ -43,45 +43,44 @@ sub get(%s) returns List {
   $char, %s<input_pos>;
 }
 
-sub step-chr-a(%s) returns Hash {
+sub step-chr-a(%s) {
   %s<lastnws> = %s<a> unless is-whitespace %s<a>;
   %s<last>    = %s<a>;
   send-chr-out %s;
 }
 
-sub send-chr-out(%s) returns Hash {
+sub send-chr-out(%s) {
   %s<output>.send: %s<a>;
   delete-chr-a %s;
 }
 
-sub delete-chr-a(%s) returns Hash {
+sub delete-chr-a(%s) {
   %s<a> = %s<b>;
   delete-chr-b %s;
 }
 
-sub delete-chr-b(%s) returns Hash {
+sub delete-chr-b(%s) {
   (%s<b>, %s<c>) = (%s<c>, %s<d>);
   (%s<d>, %s<input_pos>) = get %s;
-  return %s;
 }
 
 sub put-literal(%s) returns Hash {
   my Str $delimiter = %s<a>;
 
   if $delimiter eq '`' {
-    %s = step-chr-a %s;
+    step-chr-a(%s);
     my Int $brace-depth = 0;
     loop {
       while %s<a> eq '\\' {
-        %s = %s.&step-chr-a.&step-chr-a;
+        step-chr-a(%s); step-chr-a(%s);
       }
       if %s<a> eq '`' && $brace-depth == 0 {
-        %s = step-chr-a %s;
+        step-chr-a(%s);
         last;
       }
       if %s<a> eq '$' && %s<b> eq '{' && $brace-depth == 0 {
-        %s = step-chr-a %s;
-        %s = step-chr-a %s;
+        step-chr-a(%s);
+        step-chr-a(%s);
         $brace-depth = 1;
         next;
       }
@@ -95,12 +94,12 @@ sub put-literal(%s) returns Hash {
         } elsif %s<a> eq '}' {
           $brace-depth--;
           if $brace-depth == 0 {
-            %s = step-chr-a %s;
+            step-chr-a(%s);
             next;
           }
         }
       }
-      %s = step-chr-a %s;
+      step-chr-a(%s);
       if !%s<a> && $brace-depth == 0 {
         die 'unterminated template literal, stopped';
       }
@@ -108,18 +107,18 @@ sub put-literal(%s) returns Hash {
     return %s;
   }
 
-  %s = step-chr-a %s;
+  step-chr-a(%s);
   loop {
     while %s<a> eq '\\' {
       if is-endspace(%s<b>) {
-        %s = delete-chr-a %s;
-        %s = delete-chr-a %s;
+        delete-chr-a(%s);
+        delete-chr-a(%s);
         next;
       }
-      %s = %s.&step-chr-a;
-      %s = step-chr-a %s;
+      step-chr-a(%s);
+      step-chr-a(%s);
     }
-    %s = step-chr-a %s;
+    step-chr-a(%s);
     last if %s<last> eq $delimiter || !%s<a>;
   }
 
@@ -137,14 +136,14 @@ sub collapse-whitespace(%s) returns Hash {
   while (is-whitespace(%s<a>) &&
          is-whitespace(%s<b>)) {
     %s<a> = "\n" if (is-endspace(%s<a>) || is-endspace(%s<b>));
-    %s = delete-chr-b %s;
+    delete-chr-b(%s);
   }
   return %s;
 }
 
 sub skip-whitespace(%s) returns Hash {
   while (is-whitespace(%s<a>)) {
-    %s = delete-chr-a %s;
+    delete-chr-a(%s);
   }
   return %s;
 }
@@ -152,7 +151,7 @@ sub skip-whitespace(%s) returns Hash {
 sub preserve-endspace(%s) returns Hash {
   %s = collapse-whitespace(%s);
   if is-endspace(%s<a>) && !is-postfix(%s<b>) {
-    %s = step-chr-a(%s);
+    step-chr-a(%s);
   }
   skip-whitespace(%s)
  }
@@ -163,7 +162,8 @@ sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bo
 
 sub process-conditional-comment(%s) returns Hash {
   if on-whitespace-conditional-comment(|%s{'a' .. 'd'}) {
-    step-chr-a %s
+    step-chr-a(%s);
+    %s;
   } else {
     preserve-endspace %s
   }
@@ -171,18 +171,24 @@ sub process-conditional-comment(%s) returns Hash {
 
 sub process-double-plus-minus(%s) returns Hash {
   if is-whitespace(%s<a>) {
-    (%s<b> eq %s<last>) ?? step-chr-a(%s) !! preserve-endspace(%s);
-  } else {
-    %s
+    if %s<b> eq %s<last> {
+      step-chr-a(%s);
+    } else {
+      preserve-endspace(%s);
+    }
   }
+  %s;
 }
 
 sub process-property-invocation(%s) returns Hash {
   if %s<a> && is-whitespace(%s<a>) {
-    (%s<b> && (is-alphanum(%s<b>) || %s<b> eq '.')) ?? step-chr-a(%s) !! preserve-endspace(%s);
-  } else {
-    %s
+    if %s<b> && (is-alphanum(%s<b>) || %s<b> eq '.') {
+      step-chr-a(%s);
+    } else {
+      preserve-endspace(%s);
+    }
   }
+  %s;
 }
 
 sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
@@ -193,7 +199,7 @@ sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
     } elsif %s<a> eq $close {
       $depth--;
     }
-    %s = delete-chr-a %s;
+    delete-chr-a(%s);
   }
   return %s;
 }
@@ -202,11 +208,16 @@ multi sub process-comments(%s where {%s<b> eq '/'}) returns Hash {
   my Bool $cc_flag = %s<c> eq '@';
 
   repeat {
-    %s = $cc_flag ?? send-chr-out %s !! delete-chr-a %s;
+    if $cc_flag {
+      send-chr-out %s;
+    } else {
+      delete-chr-a(%s);
+    }
   } until (!%s<a> || is-endspace(%s<a>));
 
   if $cc_flag {
-    %s.&step-chr-a.&skip-whitespace;
+    step-chr-a(%s);
+    skip-whitespace(%s);
   } elsif %s<last> && !is-endspace(%s<last>) && !is-prefix(%s<last>) {
     return preserve-endspace %s;
   } else {
@@ -224,7 +235,7 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
     loop {
       last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
       @buf.push(%s<a>);
-      %s = delete-chr-a %s;
+      delete-chr-a(%s);
     }
     die 'unterminated comment, stopped' unless %s<b>;
     if $bang_flag {
@@ -233,19 +244,21 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
     for @buf -> $c {
       %s<output>.send($c);
     }
-    return %s.&send-chr-out.&send-chr-out.&preserve-endspace;
+    send-chr-out(%s);
+    send-chr-out(%s);
+    preserve-endspace(%s);
   }
 
   # For regular comments: consume and discard
   loop {
     last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
-    %s = delete-chr-a %s;
+    delete-chr-a(%s);
   }
 
   die 'unterminated comment, stopped' unless %s<b>;
 
   # Remove the closing * and /
-  %s = delete-chr-a %s;
+  delete-chr-a(%s);
   %s<a> = ' ';
   %s = collapse-whitespace %s;
 
@@ -253,7 +266,8 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
       ((is-alphanum(%s<last>) && ( is-alphanum(%s<b>) || %s<b> eq '.')) ||
        (%s<last> eq '+' && %s<b> eq '+') ||
        (%s<last> eq '-' && %s<b> eq '-') )) {
-    return step-chr-a %s;
+    step-chr-a(%s);
+    %s;
   } elsif (%s<last> && !is-prefix(%s<last>)) {
     return preserve-endspace %s;
   } else {
@@ -271,11 +285,14 @@ sub is-regex-start(Str $w) returns Bool {
 multi sub process-comments(%s where {%s<lastnws> &&
                            (')]}.'.contains(%s<lastnws>) ||
                            (is-alphanum(%s<lastnws>) && !is-regex-start(%s<lastnws>)))}) returns Hash {
-  %s.&step-chr-a.&collapse-whitespace.&process-conditional-comment;
+  step-chr-a(%s);
+  collapse-whitespace(%s);
+  process-conditional-comment(%s);
 }
 
 multi sub process-comments(%s where {%s<a> eq '/' and %s<b> eq '.' and !is-regex-start(%s<lastnws> // '')}) returns Hash {
-  %s.&collapse-whitespace.&step-chr-a;
+  collapse-whitespace(%s);
+  step-chr-a(%s);
 }
 
 multi sub process-comments(%s) returns Hash {
@@ -291,21 +308,23 @@ multi sub process-char(%s where { "'\"`".contains(%s<a>) }) returns Hash {
 }
 
 multi sub process-char(%s where { '+-'.contains(%s<a>) }) returns Hash {
-  %s.&step-chr-a.&collapse-whitespace.&process-double-plus-minus;
+  step-chr-a(%s);
+  collapse-whitespace(%s);
+  process-double-plus-minus(%s);
 }
 
 multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
   my @id;
   while %s<a> && is-alphanum(%s<a>) {
     @id.push(%s<a>);
-    %s = delete-chr-a %s;
+    delete-chr-a(%s);
   }
   my Str $id = @id.join;
 
   if $id eq 'debugger' && %s<drop_debugger> {
     %s = collapse-whitespace %s;
     if %s<a> eq ';' {
-      %s = delete-chr-a %s;
+      delete-chr-a(%s);
     }
     %s = skip-whitespace %s;
     return %s;
@@ -314,12 +333,12 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
   if $id eq 'console' && %s<drop_console> {
     %s = collapse-whitespace %s;
     if %s<a> eq '.' {
-      %s = delete-chr-a %s;
+      delete-chr-a(%s);
       %s = collapse-whitespace %s;
       my @method;
       while %s<a> && is-alphanum(%s<a>) {
         @method.push(%s<a>);
-        %s = delete-chr-a %s;
+        delete-chr-a(%s);
       }
       my $method = @method.join;
       %s = collapse-whitespace %s;
@@ -327,7 +346,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
         %s = skip-matching-paren %s, '(', ')';
         %s = collapse-whitespace %s;
         if %s<a> eq ';' {
-          %s = delete-chr-a %s;
+          delete-chr-a(%s);
         }
         %s = skip-whitespace %s;
         return %s;
@@ -359,27 +378,31 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
   }
   %s<lastnws> = $id;
   %s<last>    = $id;
-  %s.&collapse-whitespace.&process-property-invocation;
+  collapse-whitespace(%s);
+  process-property-invocation(%s);
 }
 
 multi sub process-char(%s where { ';'.contains(%s<a>) }) returns Hash {
   while is-whitespace(%s<b>) {
-    %s = delete-chr-b %s;
+    delete-chr-b(%s);
   }
   if %s<b> eq '}' {
-    %s = delete-chr-a %s;
+    delete-chr-a(%s);
     %s<last> = '}';
     return %s;
   }
-  %s.&step-chr-a.&skip-whitespace;
+  step-chr-a(%s);
+  skip-whitespace(%s);
 }
 
 multi sub process-char(%s where { ']})'.contains(%s<a>) }) returns Hash {
-  %s.&step-chr-a.&preserve-endspace;
+  step-chr-a(%s);
+  preserve-endspace(%s);
 }
 
 multi sub process-char(%s) returns Hash {
-  %s.&step-chr-a.&skip-whitespace;
+  step-chr-a(%s);
+  skip-whitespace(%s);
 }
 
 multi sub output-manager(Channel $output, Channel $stream) returns Promise {
