@@ -146,6 +146,7 @@ sub skip-whitespace(%s) returns Hash {
 }
 
 sub preserve-endspace(%s) returns Hash {
+  return skip-whitespace(%s) if %s<aggressive>;
   %s = collapse-whitespace(%s);
   if is-endspace(%s<a>) && !is-postfix(%s<b>) {
     step-chr-a(%s);
@@ -179,6 +180,7 @@ sub process-double-plus-minus(%s) returns Hash {
 
 sub process-property-invocation(%s) returns Hash {
   if is-whitespace(%s<a>) {
+    %s<a> = ' ' if %s<aggressive> && is-endspace(%s<a>);
     if %s<b> && (is-alphanum(%s<b>) || %s<b> eq '.') {
       step-chr-a(%s);
     } else {
@@ -433,8 +435,9 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$strip_debug = False,
                 Bool :$keep_bang_comments = False,
                 Bool :$drop_console = False,
-                Bool :$drop_debugger = False,
-                Bool :$nocompress = False) is export {
+                 Bool :$drop_debugger = False,
+                 Bool :$nocompress = False,
+                 Bool :$aggressive = False) is export {
 
   my Str $input_new = $input ~~ Str ?? $input !! $input.readchars;
 
@@ -484,8 +487,9 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
           last              => Str,
            lastnws           => Str,
           keep_bang_comments => $keep_bang_comments,
-          drop_console      => $drop_console,
-          drop_debugger     => $drop_debugger;
+           drop_console      => $drop_console,
+           drop_debugger     => $drop_debugger,
+           aggressive        => $aggressive;
 
   my Promise $output = (given $stream {
                           when Channel { output-manager(%s<output>, $stream) }

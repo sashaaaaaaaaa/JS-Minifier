@@ -8,6 +8,7 @@ my Bool $keep_bang_comments;
 my Bool $drop_console;
 my Bool $drop_debugger;
 my Bool $nocompress;
+my Bool $aggressive;
 my Bool $check;
 my Bool $version;
 my Bool $help;
@@ -25,6 +26,7 @@ while $i < @*ARGS.elems {
     when '--drop-console'         { $drop_console = True; }
     when '--drop-debugger'        { $drop_debugger = True; }
     when '--nocompress'           { $nocompress = True; }
+    when '-a' | '--aggressive'    { $aggressive = True; }
     when '--check'                { $check = True; }
     when '--version'              { $version = True; }
     when '-h' | '--help'          { $help = True; }
@@ -60,6 +62,7 @@ if $help {
       --drop-console          Remove console.* calls
       --drop-debugger         Remove debugger; statements
       --nocompress            Respect /* BEGIN NOCOMPRESS */ blocks
+      -a, --aggressive        Strip all newlines for single-line output
       --check                 Only check for errors, no output
       --version               Show version
       -h, --help              Show this help
@@ -76,7 +79,8 @@ if $check {
                   keep_bang_comments => $keep_bang_comments,
                   drop_console => $drop_console,
                   drop_debugger => $drop_debugger,
-                  nocompress => $nocompress);
+                  nocompress => $nocompress,
+                  aggressive => $aggressive);
       CATCH {
         note "Error in $file: $_";
         $has_errors = True;
@@ -98,7 +102,8 @@ my sub minify-and-print(Str $input) {
                              keep_bang_comments => $keep_bang_comments,
                              drop_console => $drop_console,
                              drop_debugger => $drop_debugger,
-                             nocompress => $nocompress);
+                              nocompress => $nocompress,
+                              aggressive => $aggressive);
   if $output_fh {
     $output_fh.print($minified);
   } else {
