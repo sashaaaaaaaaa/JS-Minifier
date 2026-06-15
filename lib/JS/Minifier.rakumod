@@ -237,9 +237,7 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
     if $bang_flag {
       @buf.pop while @buf && is-whitespace(@buf[*-1]);
     }
-    for @buf -> $c {
-      %s<output>.send($c);
-    }
+    %s<output>.send(@buf.join);
     send-chr-out(%s);
     send-chr-out(%s);
     return preserve-endspace(%s);
@@ -329,21 +327,21 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   if $id eq 'console' && %s<drop_console> {
     %s = collapse-whitespace %s;
-      if %s<a> eq '.' {
+    if %s<a> eq '.' {
+      delete-chr-a(%s);
+      %s = collapse-whitespace %s;
+      %s = skip-whitespace %s;
+      my @method;
+      while %s<a> && is-alphanum(%s<a>) {
+        @method.push(%s<a>);
         delete-chr-a(%s);
-        %s = collapse-whitespace %s;
-        %s = skip-whitespace %s;
-        my @method;
-        while %s<a> && is-alphanum(%s<a>) {
-          @method.push(%s<a>);
-          delete-chr-a(%s);
-        }
-        my $method = @method.join;
-        %s = collapse-whitespace %s;
-        %s = skip-whitespace %s;
-        if %s<a> eq '(' {
-          delete-chr-a(%s);
-          %s = skip-matching-paren %s, '(', ')';
+      }
+      my $method = @method.join;
+      %s = collapse-whitespace %s;
+      %s = skip-whitespace %s;
+      if %s<a> eq '(' {
+        delete-chr-a(%s);
+        %s = skip-matching-paren %s, '(', ')';
         %s = collapse-whitespace %s;
         if %s<a> eq ';' {
           delete-chr-a(%s);
