@@ -63,13 +63,13 @@ sub delete-chr-a(%s) returns Hash {
   delete-chr-b %s;
 }
 
-sub delete-chr-b(%s is copy) returns Hash {
+sub delete-chr-b(%s) returns Hash {
   (%s<b>, %s<c>) = (%s<c>, %s<d>);
   (%s<d>, %s<last_read_char>, %s<input_pos>) = get %s;
   return %s;
 }
 
-sub put-literal(%s is copy) returns Hash {
+sub put-literal(%s) returns Hash {
   my Str $delimiter = %s<a>;
 
   if $delimiter eq '`' {
@@ -133,7 +133,7 @@ sub put-literal(%s is copy) returns Hash {
   }
 }
 
-sub collapse-whitespace(%s is copy) returns Hash {
+sub collapse-whitespace(%s) returns Hash {
   while (is-whitespace(%s<a>) &&
          is-whitespace(%s<b>)) {
     %s<a> = "\n" if (is-endspace(%s<a>) || is-endspace(%s<b>));
@@ -142,14 +142,14 @@ sub collapse-whitespace(%s is copy) returns Hash {
   return %s;
 }
 
-sub skip-whitespace(%s is copy) returns Hash {
+sub skip-whitespace(%s) returns Hash {
   while (is-whitespace(%s<a>)) {
     %s = delete-chr-a %s;
   }
   return %s;
 }
 
-sub preserve-endspace(%s is copy) returns Hash {
+sub preserve-endspace(%s) returns Hash {
   %s = collapse-whitespace(%s);
   if is-endspace(%s<a>) && !is-postfix(%s<b>) {
     %s = step-chr-a(%s);
@@ -186,7 +186,7 @@ sub process-property-invocation(%s) returns Hash {
    });
 }
 
-sub skip-matching-paren(%s is copy, Str $open, Str $close) returns Hash {
+sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
   my Int $depth = 1;
   while $depth > 0 && %s<a> {
     if %s<a> eq $open {
@@ -199,7 +199,7 @@ sub skip-matching-paren(%s is copy, Str $open, Str $close) returns Hash {
   return %s;
 }
 
-multi sub process-comments(%s is copy where {%s<b> eq '/'}) returns Hash {
+multi sub process-comments(%s where {%s<b> eq '/'}) returns Hash {
   my Bool $cc_flag = %s<c> eq '@';
 
   repeat {
@@ -219,7 +219,7 @@ multi sub process-comments(%s is copy where {%s<b> eq '/'}) returns Hash {
   });
 }
 
-multi sub process-comments(%s is copy where {%s<b> eq '*'}) returns Hash {
+multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
   my Bool $cc_flag = %s<c> eq '@';
   my Bool $bang_flag = %s<keep_bang_comments> && %s<c> eq '!';
 
@@ -270,17 +270,17 @@ sub is-regex-start(Str $w) returns Bool {
   so $w eq any(<return typeof throw delete void case new in instanceof>);
 }
 
-multi sub process-comments(%s is copy where {%s<lastnws> &&
+multi sub process-comments(%s where {%s<lastnws> &&
                            (')].'.contains(%s<lastnws>) ||
                            (is-alphanum(%s<lastnws>) && !is-regex-start(%s<lastnws>)))}) returns Hash {
   %s.&step-chr-a.&collapse-whitespace.&process-conditional-comment;
 }
 
-multi sub process-comments(%s is copy where {%s<a> eq '/' and %s<b> eq '.' }) returns Hash {
+multi sub process-comments(%s where {%s<a> eq '/' and %s<b> eq '.' }) returns Hash {
   %s.&collapse-whitespace.&step-chr-a;
 }
 
-multi sub process-comments(%s is copy) returns Hash {
+multi sub process-comments(%s) returns Hash {
   %s.&put-literal.&collapse-whitespace.&process-conditional-comment;
 }
 
@@ -390,7 +390,7 @@ multi sub process-char(%s where { ']})'.contains(%s<a>) }) returns Hash {
   %s.&step-chr-a.&preserve-endspace;
 }
 
-multi sub process-char(%s is copy) returns Hash {
+multi sub process-char(%s) returns Hash {
   %s.&step-chr-a.&skip-whitespace;
 }
 
