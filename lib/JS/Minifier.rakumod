@@ -263,7 +263,7 @@ sub is-regex-start(Str $w) returns Bool {
 }
 
 multi sub process-comments(%s where {%s<lastnws> &&
-                           (')].'.contains(%s<lastnws>) ||
+                           (')]}.'.contains(%s<lastnws>) ||
                            (is-alphanum(%s<lastnws>) && !is-regex-start(%s<lastnws>)))}) returns Hash {
   %s.&step-chr-a.&collapse-whitespace.&process-conditional-comment;
 }
@@ -376,6 +376,9 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 }
 
 multi sub process-char(%s where { ';'.contains(%s<a>) }) returns Hash {
+  while is-whitespace(%s<b>) {
+    %s = delete-chr-b %s;
+  }
   if %s<b> eq '}' {
     %s = delete-chr-a %s;
     %s<last> = '}';
@@ -429,7 +432,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   my %nocompress_blocks;
 
   if $strip_debug {
-    $preprocessed = $preprocessed.subst(/ ';;;' <-[\n]>+ /, '', :g);
+    $preprocessed = $preprocessed.subst(/ ';;;' <-[\n]>* /, '', :g);
   }
 
   if $nocompress {
@@ -510,13 +513,14 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   (%s<d>, %s<cur_char>, %s<input_pos>)   = get %s;
 
   start {
-    while %s<a> {
-      if (is-whitespace(%s<a>)) {
-        die 'minifier bug: minify while loop starting with whitespace, stopped';
-      }
-      %s = process-char %s;
-    };
-
+    try {
+      while %s<a> {
+        if (is-whitespace(%s<a>)) {
+          die 'minifier bug: minify while loop starting with whitespace, stopped';
+        }
+        %s = process-char %s;
+      };
+    }
     %s<output>.send: 'exit';
   }
 
