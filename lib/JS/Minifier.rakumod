@@ -320,6 +320,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   if $id eq 'debugger' && %s<drop_debugger> {
     %s = collapse-whitespace %s;
+    %s = skip-whitespace %s;
     if %s<a> eq ';' {
       delete-chr-a(%s);
     }
@@ -329,17 +330,19 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
 
   if $id eq 'console' && %s<drop_console> {
     %s = collapse-whitespace %s;
-    if %s<a> eq '.' {
-      delete-chr-a(%s);
-      %s = collapse-whitespace %s;
-      my @method;
-      while %s<a> && is-alphanum(%s<a>) {
-        @method.push(%s<a>);
+      if %s<a> eq '.' {
         delete-chr-a(%s);
-      }
-      my $method = @method.join;
-      %s = collapse-whitespace %s;
-      if %s<a> eq '(' {
+        %s = collapse-whitespace %s;
+        %s = skip-whitespace %s;
+        my @method;
+        while %s<a> && is-alphanum(%s<a>) {
+          @method.push(%s<a>);
+          delete-chr-a(%s);
+        }
+        my $method = @method.join;
+        %s = collapse-whitespace %s;
+        %s = skip-whitespace %s;
+        if %s<a> eq '(' {
         %s = skip-matching-paren %s, '(', ')';
         %s = collapse-whitespace %s;
         if %s<a> eq ';' {
@@ -439,7 +442,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   my %nocompress_blocks;
 
   if $strip_debug {
-    $preprocessed = $preprocessed.subst(/ ';;;' <-[\n]>* /, '', :g);
+    $preprocessed = $preprocessed.subst(/ ';;;' <-[\n]>* \n? /, '', :g);
   }
 
   if $nocompress {
