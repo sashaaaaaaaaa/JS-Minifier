@@ -11,7 +11,7 @@ sub is-alphanum(Str $x) returns Bool {
 }
 
 sub is-endspace(Str $x) returns Bool {
-  "\n\f\r".contains($x);
+  $x ne "" && "\n\f\r".contains($x);
 }
 
 sub is-whitespace(Str $x) returns Bool {
@@ -246,7 +246,7 @@ multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
     }
     send-chr-out(%s);
     send-chr-out(%s);
-    preserve-endspace(%s);
+    return preserve-endspace(%s);
   }
 
   # For regular comments: consume and discard
