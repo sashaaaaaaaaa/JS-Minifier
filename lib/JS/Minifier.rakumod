@@ -34,12 +34,6 @@ sub get(%s) returns List {
   return ["", %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
   my Str $char = %s<input>[%s<input_pos>] // "";
   %s<input_pos>++;
-  if $char eq "\n" {
-    %s<line>++;
-    %s<column> = 0;
-  } else {
-    %s<column>++;
-  }
   $char, %s<input_pos>;
 }
 
@@ -290,7 +284,7 @@ multi sub process-comments(%s where {%s<lastnws> &&
   process-conditional-comment(%s);
 }
 
-multi sub process-comments(%s where {%s<a> eq '/' and %s<b> eq '.' and !is-regex-start(%s<lastnws> // '')}) returns Hash {
+multi sub process-comments(%s where {%s<lastnws>.defined and %s<a> eq '/' and %s<b> eq '.' and !is-regex-start(%s<lastnws>)}) returns Hash {
   collapse-whitespace(%s);
   step-chr-a(%s);
 }
@@ -482,9 +476,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
           input_pos         => 0,
           output            => Channel.new,
           last              => Str,
-          lastnws           => Str,
-          line              => 1,
-          column            => 0,
+           lastnws           => Str,
           keep_bang_comments => $keep_bang_comments,
           drop_console      => $drop_console,
           drop_debugger     => $drop_debugger;
@@ -525,7 +517,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   (%s<d>, %s<input_pos>)   = get %s;
 
   my $minify_error;
-  my $minify_promise = start {
+  start {
     while %s<a> {
       if (is-whitespace(%s<a>)) {
         die 'minifier bug: minify while loop starting with whitespace, stopped';
@@ -536,6 +528,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
       default {
         $minify_error = $_;
         %s<output>.send: 'exit';
+        return;
       }
     }
     %s<output>.send: 'exit';
@@ -546,7 +539,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
 
   if $nocompress && %nocompress_blocks {
     for %nocompress_blocks.kv -> $key, $value {
-      $result .= subst($key, $value, :g) with $result;
+      $result .= subst($key, $value, :g);
     }
   }
 
