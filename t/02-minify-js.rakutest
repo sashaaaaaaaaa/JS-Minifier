@@ -79,7 +79,7 @@ is js-minifier(input => '/*! license */ /* BEGIN NOCOMPRESS */ raw /* END NOCOMP
 
 is js-minifier(input => '`outer ${ `inner ${x}` } end`'), '`outer ${ `inner ${x}` } end`', 'nested template literal';
 
-is js-minifier(input => '{true: 1, false: 2}'), '{!0:1,!1:2}', 'true/false shortened even in object keys (known caveat)';
+is js-minifier(input => '{true: 1, false: 2}'), '{true:1,false:2}', 'true/false NOT shortened in object keys';
 
 is js-minifier(input => ";;;debug\nconsole.log('x');\ndebugger;", :strip_debug, :drop_console, :drop_debugger),
    '',
