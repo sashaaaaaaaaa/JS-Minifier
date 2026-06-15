@@ -178,7 +178,7 @@ sub process-double-plus-minus(%s) returns Hash {
 }
 
 sub process-property-invocation(%s) returns Hash {
-  if %s<a> && is-whitespace(%s<a>) {
+  if is-whitespace(%s<a>) {
     if %s<b> && (is-alphanum(%s<b>) || %s<b> eq '.') {
       step-chr-a(%s);
     } else {
@@ -367,7 +367,7 @@ multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
   my %shorten = 'true' => '!0', 'false' => '!1';
   if %shorten{$id}:exists {
     if (%s<lastnws> // '') ∈ $VAR-LET-CONST || %s<lastnws> eq '.'
-        || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<a> && %s<b> eq ':')
+        || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<b> eq ':')
         || %s<a> eq '(' {
       %s<output>.send($id);
     } else {
@@ -407,7 +407,7 @@ multi sub process-char(%s) returns Hash {
 
 multi sub output-manager(Channel $output, Channel $stream) returns Promise {
   start {
-    $output.list.map: -> $c {
+    for $output.list -> $c {
       if $c eq 'exit' {
         $stream.close;
         last;
@@ -421,7 +421,7 @@ multi sub output-manager(Channel $output, Channel $stream) returns Promise {
 multi sub output-manager(Channel $output) returns Promise {
   start {
     my Str @buf;
-    $output.list.map: -> $c {
+    for $output.list -> $c {
       last if $c eq 'exit';
       @buf.push($c);
     }
@@ -436,7 +436,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$drop_debugger = False,
                 Bool :$nocompress = False) is export {
 
-  my Str $input_new = $input.WHAT ~~ Str ?? $input !! $input.readchars;
+  my Str $input_new = $input ~~ Str ?? $input !! $input.readchars;
 
   my Str $preprocessed = $input_new;
   my %nocompress_blocks;
