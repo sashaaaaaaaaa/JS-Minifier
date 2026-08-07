@@ -1,13 +1,18 @@
-use v6;
+use v6.d;
 
 unit module JS::Minifier;
 
+my constant $DIGITS     = '0'..'9';
+my constant $UPPERCASE  = 'A'..'Z';
+my constant $LOWERCASE  = 'a'..'z';
+my constant %SHORTEN    = 'true' => '!0', 'false' => '!1';
+
 sub is-alphanum(Str $x) returns Bool {
-  so $x ne "" && ($x gt '~' || '$\\'.contains($x) ||
-    $x ~~ '0'..'9' ||
-    $x ~~ 'A'..'Z' ||
+  so $x ne '' && ($x gt '~' || '$\\'.contains($x) ||
+    $x ~~ $DIGITS ||
+    $x ~~ $UPPERCASE ||
     $x eq '_' ||
-    $x ~~ 'a'..'z');
+    $x ~~ $LOWERCASE);
 }
 
 sub is-endspace(Str $x) returns Bool {
@@ -30,32 +35,45 @@ sub is-postfix(Str $x) returns Bool {
   so $x ne "" && '})]'.contains: $x;
 }
 
-sub get(%s) returns List {
-  return ["", %s<input_pos>] unless %s<input_pos> < %s<input>.elems;
-  my Str $char = %s<input>[%s<input_pos>] // "";
-  %s<input_pos>++;
-  $char, %s<input_pos>;
+sub get(%s) returns Str {
+  my Int $pos = %s<input_pos>;
+  return '' if $pos >= %s<input>.elems;
+  %s<input_pos> = $pos + 1;
+  %s<input>[$pos] // '';
 }
 
 sub step-chr-a(%s) {
-  %s<lastnws> = %s<a> unless is-whitespace %s<a>;
-  %s<last>    = %s<a>;
-  send-chr-out %s;
+  if !is-whitespace(%s<a>) {
+    %s<prevnws> = %s<lastnws>;
+    %s<lastnws> = %s<a>;
+  }
+  %s<last> = %s<a>;
+  %s<out>.push(%s<a>) if %s<a>;
+  %s<a> = %s<b>;
+  %s<b> = %s<c>;
+  %s<c> = %s<d>;
+  %s<d> = get %s;
 }
 
 sub send-chr-out(%s) {
-  %s<output>.send: %s<a>;
-  delete-chr-a %s;
+  %s<out>.push(%s<a>) if %s<a>;
+  %s<a> = %s<b>;
+  %s<b> = %s<c>;
+  %s<c> = %s<d>;
+  %s<d> = get %s;
 }
 
 sub delete-chr-a(%s) {
   %s<a> = %s<b>;
-  delete-chr-b %s;
+  %s<b> = %s<c>;
+  %s<c> = %s<d>;
+  %s<d> = get %s;
 }
 
 sub delete-chr-b(%s) {
-  (%s<b>, %s<c>) = (%s<c>, %s<d>);
-  (%s<d>, %s<input_pos>) = get %s;
+  %s<b> = %s<c>;
+  %s<c> = %s<d>;
+  %s<d> = get %s;
 }
 
 sub put-literal(%s) returns Hash {
@@ -152,7 +170,7 @@ sub preserve-endspace(%s) returns Hash {
     step-chr-a(%s);
   }
   skip-whitespace(%s)
- }
+}
 
 sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bool {
   is-whitespace($a) && $b eq '/' && ($c eq '/' || $c eq '*') && $d eq '@';
@@ -200,75 +218,6 @@ sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
   return %s;
 }
 
-multi sub process-comments(%s where {%s<b> eq '/'}) returns Hash {
-  my Bool $cc_flag = %s<c> eq '@';
-
-  repeat {
-    if $cc_flag {
-      send-chr-out %s;
-    } else {
-      delete-chr-a(%s);
-    }
-  } until (!%s<a> || is-endspace(%s<a>));
-
-  if $cc_flag {
-    step-chr-a(%s);
-    skip-whitespace(%s);
-  } elsif %s<last> && !is-endspace(%s<last>) && !is-prefix(%s<last>) {
-    return preserve-endspace %s;
-  } else {
-    return skip-whitespace %s;
-  }
-}
-
-multi sub process-comments(%s where {%s<b> eq '*'}) returns Hash {
-  my Bool $cc_flag = %s<c> eq '@';
-  my Bool $bang_flag = %s<keep_bang_comments> && %s<c> eq '!';
-
-  # For IE conditional comments and bang comments: output verbatim
-  if $cc_flag || $bang_flag {
-    my @buf;
-    loop {
-      last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
-      @buf.push(%s<a>);
-      delete-chr-a(%s);
-    }
-    die 'unterminated comment, stopped' unless %s<b>;
-    if $bang_flag {
-      @buf.pop while @buf && is-whitespace(@buf[*-1]);
-    }
-    %s<output>.send(@buf.join);
-    send-chr-out(%s);
-    send-chr-out(%s);
-    return preserve-endspace(%s);
-  }
-
-  # For regular comments: consume and discard
-  loop {
-    last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
-    delete-chr-a(%s);
-  }
-
-  die 'unterminated comment, stopped' unless %s<b>;
-
-  # Remove the closing * and /
-  delete-chr-a(%s);
-  %s<a> = ' ';
-  %s = collapse-whitespace %s;
-
-  if (%s<last> && %s<b> &&
-      ((is-alphanum(%s<last>) && ( is-alphanum(%s<b>) || %s<b> eq '.')) ||
-       (%s<last> eq '+' && %s<b> eq '+') ||
-       (%s<last> eq '-' && %s<b> eq '-') )) {
-    step-chr-a(%s);
-    %s;
-  } elsif (%s<last> && !is-prefix(%s<last>)) {
-    return preserve-endspace %s;
-  } else {
-    return skip-whitespace %s;
-  }
-}
-
 my constant $REGEX-START = set <return typeof throw delete void case new in instanceof yield export import extends super await>;
 my constant $VAR-LET-CONST = set <var let const>;
 
@@ -276,166 +225,225 @@ sub is-regex-start(Str $w) returns Bool {
   so $w ∈ $REGEX-START;
 }
 
-multi sub process-comments(%s where {%s<lastnws> &&
-                           (')]}.'.contains(%s<lastnws>) ||
-                           (is-alphanum(%s<lastnws>) && !is-regex-start(%s<lastnws>)))}) returns Hash {
-  step-chr-a(%s);
-  collapse-whitespace(%s);
-  process-conditional-comment(%s);
-}
+sub process-comments(%s) returns Hash {
+  if %s<b> eq '/' {
+    my Bool $cc_flag = %s<c> eq '@';
 
-multi sub process-comments(%s where {%s<lastnws>.defined and %s<a> eq '/' and %s<b> eq '.' and !is-regex-start(%s<lastnws>)}) returns Hash {
-  collapse-whitespace(%s);
-  step-chr-a(%s);
-}
+    repeat {
+      if $cc_flag {
+        send-chr-out(%s);
+      } else {
+        delete-chr-a(%s);
+      }
+    } until (!%s<a> || is-endspace(%s<a>));
 
-multi sub process-comments(%s) returns Hash {
-  %s.&put-literal.&collapse-whitespace.&process-conditional-comment;
-}
-
-multi sub process-char(%s where {%s<a> eq '/'}) returns Hash {
-  process-comments %s;
-}
-
-multi sub process-char(%s where { "'\"`".contains(%s<a>) }) returns Hash {
-  %s.&put-literal.&preserve-endspace;
-}
-
-multi sub process-char(%s where { '+-'.contains(%s<a>) }) returns Hash {
-  step-chr-a(%s);
-  collapse-whitespace(%s);
-  process-double-plus-minus(%s);
-}
-
-multi sub process-char(%s where { is-alphanum(%s<a>) }) returns Hash {
-  my @id;
-  while %s<a> && is-alphanum(%s<a>) {
-    @id.push(%s<a>);
-    delete-chr-a(%s);
+    if $cc_flag {
+      step-chr-a(%s);
+      skip-whitespace(%s);
+      return %s;
+    }
+    if %s<last> && !is-endspace(%s<last>) && !is-prefix(%s<last>) {
+      return preserve-endspace(%s);
+    }
+    return skip-whitespace(%s);
   }
-  my Str $id = @id.join;
 
-  if $id eq 'debugger' && %s<drop_debugger> {
-    %s = collapse-whitespace %s;
-    %s = skip-whitespace %s;
-    if %s<a> eq ';' {
+  if %s<b> eq '*' {
+    my Bool $cc_flag = %s<c> eq '@';
+    my Bool $bang_flag = %s<keep_bang_comments> && %s<c> eq '!';
+
+    # For IE conditional comments and bang comments: output verbatim
+    if $cc_flag || $bang_flag {
+      my @buf;
+      loop {
+        last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
+        @buf.push(%s<a>);
+        delete-chr-a(%s);
+      }
+      die 'unterminated comment, stopped' unless %s<b>;
+      if $bang_flag {
+        @buf.pop while @buf && is-whitespace(@buf[*-1]);
+      }
+      %s<out>.push(@buf.join);
+      send-chr-out(%s);
+      send-chr-out(%s);
+      return preserve-endspace(%s);
+    }
+
+    # For regular comments: consume and discard
+    loop {
+      last if !%s<b> || (%s<a> eq '*' && %s<b> eq '/');
       delete-chr-a(%s);
     }
-    %s = skip-whitespace %s;
+
+    die 'unterminated comment, stopped' unless %s<b>;
+
+    # Remove the closing * and /
+    delete-chr-a(%s);
+    %s<a> = ' ';
+    %s = collapse-whitespace %s;
+
+    if (%s<last> && %s<b> &&
+        ((is-alphanum(%s<last>) && ( is-alphanum(%s<b>) || %s<b> eq '.')) ||
+         (%s<last> eq '+' && %s<b> eq '+') ||
+         (%s<last> eq '-' && %s<b> eq '-') )) {
+      step-chr-a(%s);
+      return %s;
+    }
+    if (%s<last> && !is-prefix(%s<last>)) {
+      return preserve-endspace(%s);
+    }
+    return skip-whitespace(%s);
+  }
+
+  my $ln = %s<lastnws>;
+  if $ln && (')]}.'.contains($ln) ||
+             (is-alphanum($ln) && !is-regex-start($ln)) ||
+             (($ln eq '+' || $ln eq '-') && %s<prevnws> eq $ln)) {
+    step-chr-a(%s);
+    collapse-whitespace(%s);
+    return process-conditional-comment(%s);
+  }
+
+  if $ln ne '' && %s<b> eq '.' && !is-regex-start($ln) {
+    collapse-whitespace(%s);
+    step-chr-a(%s);
     return %s;
   }
 
-  if $id eq 'console' && %s<drop_console> {
-    %s = collapse-whitespace %s;
-    if %s<a> eq '.' {
+  %s.&put-literal.&collapse-whitespace.&process-conditional-comment;
+}
+
+sub process-char(%s) returns Hash {
+  my Str $a = %s<a>;
+  if $a eq '/' {
+    return process-comments %s;
+  }
+  if "'\"`".contains($a) {
+    return %s.&put-literal.&preserve-endspace;
+  }
+  if $a eq '+' || $a eq '-' {
+    step-chr-a(%s);
+    collapse-whitespace(%s);
+    return process-double-plus-minus(%s);
+  }
+  if $a eq ';' {
+    while is-whitespace(%s<b>) {
+      delete-chr-b(%s);
+    }
+    if %s<b> eq '}' {
       delete-chr-a(%s);
+      %s<last> = '}';
+      return %s;
+    }
+    step-chr-a(%s);
+    skip-whitespace(%s);
+    return %s;
+  }
+  if ']})'.contains($a) {
+    step-chr-a(%s);
+    return preserve-endspace(%s);
+  }
+  if is-alphanum($a) {
+    my @id;
+    while %s<a> && is-alphanum(%s<a>) {
+      @id.push(%s<a>);
+      delete-chr-a(%s);
+    }
+    my Str $id = @id.join;
+
+    if $id eq 'debugger' && %s<drop_debugger> {
       %s = collapse-whitespace %s;
       %s = skip-whitespace %s;
-      my @method;
-      while %s<a> && is-alphanum(%s<a>) {
-        @method.push(%s<a>);
+      if %s<a> eq ';' {
         delete-chr-a(%s);
       }
-      my $method = @method.join;
-      %s = collapse-whitespace %s;
       %s = skip-whitespace %s;
-      if %s<a> eq '(' {
+      return %s;
+    }
+
+    if $id eq 'console' && %s<drop_console> {
+      %s = collapse-whitespace %s;
+      if %s<a> eq '.' {
         delete-chr-a(%s);
-        %s = skip-matching-paren %s, '(', ')';
         %s = collapse-whitespace %s;
-        if %s<a> eq ';' {
+        %s = skip-whitespace %s;
+        my @method;
+        while %s<a> && is-alphanum(%s<a>) {
+          @method.push(%s<a>);
           delete-chr-a(%s);
         }
+        my $method = @method.join;
+        %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
-        return %s;
+        if %s<a> eq '(' {
+          delete-chr-a(%s);
+          %s = skip-matching-paren %s, '(', ')';
+          %s = collapse-whitespace %s;
+          if %s<a> eq ';' {
+            delete-chr-a(%s);
+          }
+          %s = skip-whitespace %s;
+          return %s;
+        }
+        %s<out>.push('console.' ~ $method);
+        %s<prevnws> = %s<lastnws>;
+        %s<lastnws> = $method;
+        %s<last> = $method.substr(*-1, 1);
+      } else {
+        %s<out>.push('console');
+        %s<prevnws> = %s<lastnws>;
+        %s<lastnws> = 'console';
+        %s<last> = 'console';
       }
-      %s<output>.send('console.' ~ $method);
-      %s<lastnws> = $method;
-      %s<last> = $method.substr(*-1, 1);
-    } else {
-      %s<output>.send('console');
-      %s<lastnws> = 'console';
-      %s<last>    = 'console';
+      %s = collapse-whitespace %s;
+      %s = process-property-invocation %s;
+      return %s;
     }
+
+    if (%SHORTEN{$id}:exists) {
+      if %s<lastnws> ∈ $VAR-LET-CONST || %s<lastnws> eq '.'
+          || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<b> eq ':')
+          || %s<a> eq '(' {
+        %s<out>.push($id);
+        %s<last> = $id.substr(*-1, 1);
+      } else {
+        %s<out>.push(%SHORTEN{$id});
+        %s<last> = %SHORTEN{$id}.substr(*-1, 1);
+      }
+    } else {
+      %s<out>.push($id);
+      %s<last> = $id.substr(*-1, 1);
+    }
+    %s<prevnws> = %s<lastnws>;
+    %s<lastnws> = $id;
     %s = collapse-whitespace %s;
     %s = process-property-invocation %s;
     return %s;
   }
-
-  my %shorten = 'true' => '!0', 'false' => '!1';
-  if %shorten{$id}:exists {
-    if (%s<lastnws> // '') ∈ $VAR-LET-CONST || %s<lastnws> eq '.'
-        || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<b> eq ':')
-        || %s<a> eq '(' {
-      %s<output>.send($id);
-      %s<last> = $id.substr(*-1, 1);
-    } else {
-      %s<output>.send(%shorten{$id});
-      %s<last> = %shorten{$id}.substr(*-1, 1);
-    }
-  } else {
-    %s<output>.send($id);
-    %s<last> = $id.substr(*-1, 1);
-  }
-  %s<lastnws> = $id;
-  collapse-whitespace(%s);
-  process-property-invocation(%s);
-}
-
-multi sub process-char(%s where { %s<a> eq ';' }) returns Hash {
-  while is-whitespace(%s<b>) {
-    delete-chr-b(%s);
-  }
-  if %s<b> eq '}' {
-    delete-chr-a(%s);
-    %s<last> = '}';
-    return %s;
-  }
   step-chr-a(%s);
   skip-whitespace(%s);
+  %s;
 }
 
-multi sub process-char(%s where { ']})'.contains(%s<a>) }) returns Hash {
-  step-chr-a(%s);
-  preserve-endspace(%s);
-}
-
-multi sub process-char(%s) returns Hash {
-  step-chr-a(%s);
-  skip-whitespace(%s);
-}
-
-multi sub output-manager(Channel $output, Channel $stream) returns Promise {
-  start {
-    for $output.list -> $c {
-      if $c eq 'exit' {
-        $stream.close;
-        last;
-      }
-      $stream.send($c);
+sub restore-nocompress(Str $result, %nocompress_blocks, Bool $nocompress) returns Str {
+  if $nocompress && %nocompress_blocks {
+    my $out = $result;
+    for %nocompress_blocks.kv -> $key, $value {
+      $out .= subst($key, $value, :g);
     }
-    return;
+    return $out;
   }
+  $result;
 }
 
-multi sub output-manager(Channel $output) returns Promise {
-  start {
-    my Str @buf;
-    for $output.list -> $c {
-      last if $c eq 'exit';
-      @buf.push($c);
-    }
-    @buf.join;
-  }
-}
-
-sub js-minifier(:$input!, Str :$copyright = '', :$stream,
+sub minify-core(:$input!, Str :$copyright = '',
                 Bool :$strip_debug = False,
                 Bool :$keep_bang_comments = False,
                 Bool :$drop_console = False,
-                 Bool :$drop_debugger = False,
-                 Bool :$nocompress = False,
-                 Bool :$aggressive = False) is export {
+                Bool :$drop_debugger = False,
+                Bool :$nocompress = False,
+                Bool :$aggressive = False) returns Str {
 
   my Str $input_new = $input ~~ Str ?? $input !! $input.readchars;
 
@@ -472,30 +480,22 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
   my Str @input_list = $preprocessed.comb;
 
   unless @input_list {
-    my $empty_result = $copyright ?? "/* $copyright */" !! '';
-    return $empty_result unless $stream ~~ Channel;
-    $stream.send($empty_result) if $empty_result.chars;
-    $stream.close;
-    return;
+    return $copyright ?? "/* $copyright */" !! '';
   }
 
   my %s = input             => @input_list,
           input_pos         => 0,
-          output            => Channel.new,
-          last              => Str,
-           lastnws           => Str,
+          out               => [],
+          last              => '',
+          prevnws           => '',
+          lastnws           => '',
           keep_bang_comments => $keep_bang_comments,
-           drop_console      => $drop_console,
-           drop_debugger     => $drop_debugger,
-           aggressive        => $aggressive;
-
-  my Promise $output = (given $stream {
-                          when Channel { output-manager(%s<output>, $stream) }
-                          default      { output-manager(%s<output>) }
-                        });
+          drop_console      => $drop_console,
+          drop_debugger     => $drop_debugger,
+          aggressive        => $aggressive;
 
   if $copyright {
-    %s<output>.send("/* $copyright */");
+    %s<out>.push("/* $copyright */");
   }
 
   my Bool $shebang = @input_list && @input_list[0] eq '#' && @input_list.elems > 1 && @input_list[1] eq '!';
@@ -507,52 +507,63 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
       $idx++;
     }
     @shebang_line.push("\n") if $idx < @input_list.elems && @input_list[$idx] eq "\n";
-    %s<output>.send('#!' ~ @shebang_line.join);
+    %s<out>.push('#!' ~ @shebang_line.join);
     %s<input_pos> = $idx;
     %s<input_pos>++ if $idx < @input_list.elems && @input_list[$idx] eq "\n";
     if %s<input_pos> >= @input_list.elems {
-      %s<output>.send('exit');
-      return $output.result unless $stream ~~ Channel;
-      return;
+      return restore-nocompress(%s<out>.join, %nocompress_blocks, $nocompress);
     }
   }
 
-  repeat {
-    (%s<a>, %s<input_pos>) = get %s;
-  } while (%s<a> && is-whitespace(%s<a>));
-  (%s<b>, %s<input_pos>)   = get %s;
-  (%s<c>, %s<input_pos>)   = get %s;
-  (%s<d>, %s<input_pos>)   = get %s;
+  %s<a> = get %s;
+  while %s<a> && is-whitespace(%s<a>) {
+    %s<a> = get %s;
+  }
+  %s<b> = get %s;
+  %s<c> = get %s;
+  %s<d> = get %s;
 
-  my $minify_error;
-  start {
-    while %s<a> {
-      if (is-whitespace(%s<a>)) {
-        die 'minifier bug: minify while loop starting with whitespace, stopped';
+  while %s<a> {
+    if is-whitespace(%s<a>) {
+      die 'minifier bug: minify while loop starting with whitespace, stopped';
+    }
+    %s = process-char %s;
+  }
+
+  restore-nocompress(%s<out>.join, %nocompress_blocks, $nocompress);
+}
+
+sub js-minifier(:$input!, Str :$copyright = '', :$stream,
+                Bool :$strip_debug = False,
+                Bool :$keep_bang_comments = False,
+                Bool :$drop_console = False,
+                Bool :$drop_debugger = False,
+                Bool :$nocompress = False,
+                Bool :$aggressive = False) is export {
+
+  if $stream ~~ Channel {
+    my $result;
+    my $error;
+    try {
+      $result = minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
+                            :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
+      CATCH {
+        default {
+          $error = $_;
+        }
       }
-      %s = process-char %s;
     }
-    CATCH {
-      default {
-        $minify_error = $_;
-        %s<output>.send: 'exit';
-        return;
-      }
+    if $error {
+      $stream.close;
+      die $error;
     }
-    %s<output>.send: 'exit';
+    $stream.send($result) if $result.chars;
+    $stream.close;
+    return;
   }
 
-  my $result = $output.result;
-  die $minify_error if $minify_error;
-  return if $stream ~~ Channel;
-
-  if $nocompress && %nocompress_blocks {
-    for %nocompress_blocks.kv -> $key, $value {
-      $result .= subst($key, $value, :g);
-    }
-  }
-
-  $result;
+  minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
+              :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
 }
 
 my &js-minify := &js-minifier;
