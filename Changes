@@ -2,6 +2,19 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
+    - Fix drop_console crash on parens/slashes inside string, regex,
+      template, and comment arguments
+    - Fix drop_debugger dropping debugger in non-statement contexts
+      (e.g. obj.debugger, f(debugger))
+    - Fix division/regex misclassification: / vs // collisions and
+      unterminated regex crashes (a / /re/, /a/ / b, "a" / 2)
+    - Fix regex literals inside template ${} interpolation
+    - Normalize CRLF (\r\n) input so whitespace collapses and shebangs
+      are preserved
+    - Anchor strip_debug to line starts so ;;; in strings/comments
+      is left alone
+    - Treat U+2028/U+2029 as line terminators (end // comments)
+    - Performance: ord()-based is-alphanum/is-whitespace/is-endspace
     - Fix crash on empty input
     - Shorten true/false only in value contexts
     - Drop is copy from all sub signatures for performance

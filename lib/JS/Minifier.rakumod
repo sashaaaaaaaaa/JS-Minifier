@@ -2,25 +2,30 @@ use v6.d;
 
 unit module JS::Minifier;
 
-my constant $DIGITS     = '0'..'9';
-my constant $UPPERCASE  = 'A'..'Z';
-my constant $LOWERCASE  = 'a'..'z';
 my constant %SHORTEN    = 'true' => '!0', 'false' => '!1';
 
 sub is-alphanum(Str $x) returns Bool {
-  so $x ne '' && ($x gt '~' || '$\\'.contains($x) ||
-    $x ~~ $DIGITS ||
-    $x ~~ $UPPERCASE ||
-    $x eq '_' ||
-    $x ~~ $LOWERCASE);
+  return False if $x eq '';
+  my Int $o = ord($x);
+  return True if $o >= 48 && $o <= 57;   # 0-9
+  return True if $o >= 65 && $o <= 90;   # A-Z
+  return True if $o >= 97 && $o <= 122;  # a-z
+  return True if $x eq '_' || $x eq '$' || $x eq '\\';
+  return True if $o > 126;               # approximation for non-ASCII
+  False;
 }
 
 sub is-endspace(Str $x) returns Bool {
-  $x ne "" && "\n\f\r".contains($x);
+  return False if $x eq '';
+  my Int $o = ord($x);
+  $o == 10 || $o == 12 || $o == 13 || $o == 8232 || $o == 8233;
 }
 
 sub is-whitespace(Str $x) returns Bool {
-  ($x ne "" && (ord($x) == 32 || ord($x) == 9)) || is-endspace $x;
+  return False if $x eq '';
+  my Int $o = ord($x);
+  $o == 32 || $o == 9 || $o == 10 || $o == 12 || $o == 13 ||
+    $o == 8232 || $o == 8233;
 }
 
 sub is-infix(Str $x) returns Bool {
@@ -100,7 +105,7 @@ sub put-literal(%s) returns Hash {
         if !%s<a> {
           die 'unterminated template literal expression, stopped';
         }
-        if %s<a> eq '`' || %s<a> eq "'" || %s<a> eq '"' || (%s<a> eq '/' && is-regex-start(%s<lastnws>)) {
+        if %s<a> eq '`' || %s<a> eq "'" || %s<a> eq '"' || (%s<a> eq '/' && is-regex-literal(%s)) {
           %s = put-literal %s;
           next;
         }
@@ -119,6 +124,7 @@ sub put-literal(%s) returns Hash {
         die 'unterminated template literal, stopped';
       }
     }
+    %s<last_was_regex> = False;
     return %s;
   }
 
@@ -136,6 +142,8 @@ sub put-literal(%s) returns Hash {
     step-chr-a(%s);
     last if %s<last> eq $delimiter || !%s<a>;
   }
+
+  %s<last_was_regex> = $delimiter eq '/';
 
   given %s<last> {
     when $delimiter { %s }
@@ -210,9 +218,47 @@ sub process-property-invocation(%s) returns Hash {
 
 sub skip-matching-paren(%s, Str $open, Str $close) returns Hash {
   my Int $depth = 1;
+  %s<prevnws> = %s<lastnws>;
+  %s<lastnws> = $open;
+  %s<last> = $open;
   while $depth && %s<a> {
-    if %s<a> eq $open  { $depth++; }
-    if %s<a> eq $close { $depth--; }
+    my Str $c = %s<a>;
+    if $c eq '/' {
+      if %s<b> eq '*' {
+        while %s<a> && !(%s<a> eq '*' && %s<b> eq '/') {
+          delete-chr-a(%s);
+        }
+        die 'unterminated comment, stopped' unless %s<a>;
+        delete-chr-a(%s);
+        delete-chr-a(%s);
+        next;
+      }
+      if %s<b> eq '/' {
+        while %s<a> && !is-endspace(%s<a>) {
+          delete-chr-a(%s);
+        }
+        next;
+      }
+      if is-regex-literal(%s) {
+        my $out_start = %s<out>.elems;
+        %s = put-literal(%s);
+        %s<out>.splice($out_start);
+        next;
+      }
+    }
+    if $c eq "'" || $c eq '"' || $c eq '`' {
+      my $out_start = %s<out>.elems;
+      %s = put-literal(%s);
+      %s<out>.splice($out_start);
+      next;
+    }
+    if $c eq $open  { $depth++; }
+    if $c eq $close { $depth--; }
+    if !is-whitespace($c) {
+      %s<prevnws> = %s<lastnws>;
+      %s<lastnws> = $c;
+    }
+    %s<last> = $c;
     delete-chr-a(%s);
   }
   return %s;
@@ -223,6 +269,28 @@ my constant $VAR-LET-CONST = set <var let const>;
 
 sub is-regex-start(Str $w) returns Bool {
   so $w ∈ $REGEX-START;
+}
+
+# Whether the '/' at %s<a> opens a regular expression literal, as opposed
+# to being a division operator. Mirrors the heuristic used in
+# process-comments. A '/' whose previous non-whitespace char is itself a '/'
+# is a regex unless that slash closed a regex literal (then it is division).
+# A quote/template-literal closer is a division trigger only when the '/'
+# follows on the same line (no endspace crossed since).
+sub is-regex-literal(%s) returns Bool {
+  my Str $ln = %s<lastnws>;
+  return True if !$ln;
+  if $ln eq '/' {
+    return %s<last_was_regex> ?? False !! True;
+  }
+  return False if ')]}.'.contains($ln);
+  if $ln eq '"' || $ln eq "'" || $ln eq '`' {
+    return is-endspace(%s<last>) ?? True !! False;
+  }
+  return False if is-alphanum($ln) && !is-regex-start($ln);
+  return False if ($ln eq '+' || $ln eq '-') && %s<prevnws> eq $ln;
+  return False if %s<b> eq '.' && !is-regex-start($ln);
+  True;
 }
 
 sub process-comments(%s) returns Hash {
@@ -298,20 +366,36 @@ sub process-comments(%s) returns Hash {
 
   my $ln = %s<lastnws>;
   if $ln && (')]}.'.contains($ln) ||
+             (($ln eq '"' || $ln eq "'" || $ln eq '`') && !is-endspace(%s<last>)) ||
              (is-alphanum($ln) && !is-regex-start($ln)) ||
-             (($ln eq '+' || $ln eq '-') && %s<prevnws> eq $ln)) {
+             (($ln eq '+' || $ln eq '-') && %s<prevnws> eq $ln) ||
+             ($ln eq '/' && %s<last_was_regex>)) {
+    %s<last_was_regex> = False;
+    %s<out>.push(' ') if %s<last> eq '/';
     step-chr-a(%s);
     collapse-whitespace(%s);
     return process-conditional-comment(%s);
   }
 
   if $ln ne '' && %s<b> eq '.' && !is-regex-start($ln) {
+    %s<last_was_regex> = False;
+    %s<out>.push(' ') if %s<last> eq '/';
     collapse-whitespace(%s);
     step-chr-a(%s);
     return %s;
   }
 
+  %s<out>.push(' ') if %s<last> eq '/';
   %s.&put-literal.&collapse-whitespace.&process-conditional-comment;
+}
+
+sub read-id(%s) returns Str {
+  my @id;
+  while %s<a> && is-alphanum(%s<a>) {
+    @id.push(%s<a>);
+    delete-chr-a(%s);
+  }
+  @id.join;
 }
 
 sub process-char(%s) returns Hash {
@@ -345,47 +429,51 @@ sub process-char(%s) returns Hash {
     return preserve-endspace(%s);
   }
   if is-alphanum($a) {
-    my @id;
-    while %s<a> && is-alphanum(%s<a>) {
-      @id.push(%s<a>);
-      delete-chr-a(%s);
-    }
-    my Str $id = @id.join;
+    my Str $id = read-id %s;
 
     if $id eq 'debugger' && %s<drop_debugger> {
-      %s = collapse-whitespace %s;
-      %s = skip-whitespace %s;
-      if %s<a> eq ';' {
-        delete-chr-a(%s);
+      my $prev = %s<lastnws>;
+      if $prev eq '' || $prev eq ';' || $prev eq '{' || $prev eq '}' {
+        my %probe = %s.clone;
+        %probe = collapse-whitespace %probe;
+        %probe = skip-whitespace %probe;
+        if %probe<a> eq ';' || %probe<a> eq '}' || !%probe<a> {
+          if %probe<a> eq ';' {
+            delete-chr-a(%probe);
+          }
+          %probe = skip-whitespace %probe;
+          return %probe;
+        }
       }
-      %s = skip-whitespace %s;
-      return %s;
     }
 
     if $id eq 'console' && %s<drop_console> {
+      my $saved_prevnws = %s<prevnws>;
+      my $saved_lastnws = %s<lastnws>;
+      my $saved_last    = %s<last>;
+      my $saved_last_was_regex = %s<last_was_regex>;
       %s = collapse-whitespace %s;
       if %s<a> eq '.' {
         delete-chr-a(%s);
         %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
-        my @method;
-        while %s<a> && is-alphanum(%s<a>) {
-          @method.push(%s<a>);
-          delete-chr-a(%s);
-        }
-        my $method = @method.join;
+        my $method = read-id %s;
         %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
-        if %s<a> eq '(' {
+      if %s<a> eq '(' {
+        delete-chr-a(%s);
+        %s = skip-matching-paren %s, '(', ')';
+        %s = collapse-whitespace %s;
+        if %s<a> eq ';' {
           delete-chr-a(%s);
-          %s = skip-matching-paren %s, '(', ')';
-          %s = collapse-whitespace %s;
-          if %s<a> eq ';' {
-            delete-chr-a(%s);
-          }
-          %s = skip-whitespace %s;
-          return %s;
         }
+        %s = skip-whitespace %s;
+        %s<prevnws> = $saved_prevnws;
+        %s<lastnws> = $saved_lastnws;
+        %s<last>    = $saved_last;
+        %s<last_was_regex> = $saved_last_was_regex;
+        return %s;
+      }
         %s<out>.push('console.' ~ $method);
         %s<prevnws> = %s<lastnws>;
         %s<lastnws> = $method;
@@ -426,11 +514,11 @@ sub process-char(%s) returns Hash {
   %s;
 }
 
-sub restore-nocompress(Str $result, %nocompress_blocks, Bool $nocompress) returns Str {
-  if $nocompress && %nocompress_blocks {
+sub restore-nocompress(Str $result, @nocompress_blocks, Bool $nocompress) returns Str {
+  if $nocompress && @nocompress_blocks {
     my $out = $result;
-    for %nocompress_blocks.kv -> $key, $value {
-      $out .= subst($key, $value, :g);
+    for @nocompress_blocks -> $block {
+      $out .= subst($block[0], $block[1], :g);
     }
     return $out;
   }
@@ -447,11 +535,14 @@ sub minify-core(:$input!, Str :$copyright = '',
 
   my Str $input_new = $input ~~ Str ?? $input !! $input.readchars;
 
+  # Normalize CRLF so \r\n is treated as a single newline throughout
+  $input_new .= subst("\r\n", "\n", :g);
+
   my Str $preprocessed = $input_new;
-  my %nocompress_blocks;
+  my @nocompress_blocks;
 
   if $strip_debug {
-    $preprocessed = $preprocessed.subst(/ ';;;' <-[\n]>* \n? /, '', :g);
+    $preprocessed = $preprocessed.subst(/ [ ^ | <?after \n> ] \s* ";;;" <-[\n]>* \n? /, '', :g);
   }
 
   if $nocompress {
@@ -468,7 +559,7 @@ sub minify-core(:$input!, Str :$copyright = '',
       die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
       my $block = substr($preprocessed, $begin + $BEGIN_TAG.chars, $end - $begin - $BEGIN_TAG.chars);
       my $key = "\x00N" ~ $idx ~ "N\x00";
-      %nocompress_blocks{$key} = $block;
+      @nocompress_blocks.push([$key, $block]);
       @processed.push($key);
       $pos = $end + $END_TAG.chars;
       $idx++;
@@ -492,6 +583,7 @@ sub minify-core(:$input!, Str :$copyright = '',
           keep_bang_comments => $keep_bang_comments,
           drop_console      => $drop_console,
           drop_debugger     => $drop_debugger,
+          last_was_regex    => False,
           aggressive        => $aggressive;
 
   if $copyright {
@@ -502,16 +594,16 @@ sub minify-core(:$input!, Str :$copyright = '',
   if $shebang {
     my $idx = 2;
     my @shebang_line;
-    while $idx < @input_list.elems && @input_list[$idx] ne "\n" {
+    while $idx < @input_list.elems && !is-endspace(@input_list[$idx]) {
       @shebang_line.push(@input_list[$idx]);
       $idx++;
     }
-    @shebang_line.push("\n") if $idx < @input_list.elems && @input_list[$idx] eq "\n";
+    @shebang_line.push("\n") if $idx < @input_list.elems && is-endspace(@input_list[$idx]);
     %s<out>.push('#!' ~ @shebang_line.join);
     %s<input_pos> = $idx;
-    %s<input_pos>++ if $idx < @input_list.elems && @input_list[$idx] eq "\n";
+    %s<input_pos>++ if $idx < @input_list.elems && is-endspace(@input_list[$idx]);
     if %s<input_pos> >= @input_list.elems {
-      return restore-nocompress(%s<out>.join, %nocompress_blocks, $nocompress);
+      return restore-nocompress(%s<out>.join, @nocompress_blocks, $nocompress);
     }
   }
 
@@ -530,7 +622,7 @@ sub minify-core(:$input!, Str :$copyright = '',
     %s = process-char %s;
   }
 
-  restore-nocompress(%s<out>.join, %nocompress_blocks, $nocompress);
+  return restore-nocompress(%s<out>.join, @nocompress_blocks, $nocompress);
 }
 
 sub js-minifier(:$input!, Str :$copyright = '', :$stream,
@@ -542,20 +634,13 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$aggressive = False) is export {
 
   if $stream ~~ Channel {
-    my $result;
-    my $error;
-    try {
-      $result = minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
-                            :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
-      CATCH {
-        default {
-          $error = $_;
-        }
-      }
+    my $result = try {
+      minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
+                  :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
     }
-    if $error {
+    if $! {
       $stream.close;
-      die $error;
+      die $!;
     }
     $stream.send($result) if $result.chars;
     $stream.close;
