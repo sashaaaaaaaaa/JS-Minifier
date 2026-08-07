@@ -2,30 +2,12 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
-    - Fix drop_console crash on parens/slashes inside string, regex,
-      template, and comment arguments
-    - Fix drop_debugger dropping debugger in non-statement contexts
-      (e.g. obj.debugger, f(debugger))
-    - Fix division/regex misclassification: / vs // collisions and
-      unterminated regex crashes (a / /re/, /a/ / b, "a" / 2)
-    - Fix regex literals inside template ${} interpolation
-    - Normalize CRLF (\r\n) input so whitespace collapses and shebangs
-      are preserved
-    - Anchor strip_debug to line starts so ;;; in strings/comments
-      is left alone
-    - Treat U+2028/U+2029 as line terminators (end // comments)
-    - Performance: ord()-based is-alphanum/is-whitespace/is-endspace
-    - Fix crash on empty input
-    - Shorten true/false only in value contexts
-    - Drop is copy from all sub signatures for performance
-    - Replace O(n²) string concat with array join in identifier building
-    - Replace fragile given/when Bool smartmatch with plain if/else
-    - Fork of JS::Minify by Sam Morrison
-    - All-new CLI tool bin/jsminify
-    - Add shebang, bang-comment, template literal, NOCOMPRESS support
-    - Add drop_console/drop_debugger options
-    - Shorten true to !0 and false to !1
-    - Remove semicolons before closing braces
-    - Multiple bug fixes (out-of-bounds reads, line continuation,
-      unterminated string detection, empty-string false positives,
-      return/regex misclassification)
+    - Initial release: a fork of JS::Minify by Sam Morrison, rewritten for
+      performance and reliability
+    - New CLI tool bin/jsminify
+    - Shebang, bang-comment, template literal, and NOCOMPRESS support
+    - drop_console/drop_debugger options; true/false shortened in value
+      contexts; semicolons removed before closing braces
+    - Numerous bug fixes (out-of-bounds reads, line continuation,
+      unterminated string detection, division/regex misclassification,
+      CRLF normalization, U+2028/U+2029 line terminators)
