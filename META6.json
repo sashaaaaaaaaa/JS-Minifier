@@ -11,9 +11,9 @@
     "auth" : "zef:sasha",
     "depends" : [],
     "test-depends" : [ "Test::Output" ],
-    "source-url" : "https://github.com/sashaaaaaaaaa/JS-Minifier.git",
+    "source-url" : "https://git.disroot.org/sasha/JS-Minifier.git",
     "support" : {
-      "source" : "https://github.com/sashaaaaaaaaa/JS-Minifier.git"
+      "source" : "https://git.disroot.org/sasha/JS-Minifier.git"
     },
     "tags" : [ "javascript", "minifier", "minify" ],
     "bin" : [ "bin/jsminify" ]
