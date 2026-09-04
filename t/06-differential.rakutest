@@ -1,0 +1,206 @@
+# Differential test: the state-machine rewrite must stay byte-identical to
+# the original algorithm across a deterministic corpus and all option combos.
+# The corpus is regenerated here exactly as the goldens were captured; any
+# change to the corpus (input drift) is reported. Goldens live in
+# t/data/goldens.txt and were captured with the pre-rewrite implementation.
+use v6;
+use Test;
+use lib $*PROGRAM.parent.parent.add('lib').Str;
+use JS::Minifier;
+
+my ($inputs, %label);
+my @inputs;
+sub add(Str $in, Str $label) {
+  @inputs.push($in);
+  %label{@inputs.end} = $label;
+}
+
+my $scripts-dir = $*PROGRAM.parent.add('scripts');
+for sort($scripts-dir.dir) -> $f {
+  next unless $f.extension eq 'js';
+  next if $f.basename ~~ /'-expected'$/;
+  add($f.slurp, "fixture:" ~ $f.basename);
+}
+
+my @asi = (
+  ("a=1\nb=2",                        'asi-assign'),
+  ("a\n+b",                           'asi-plus'),
+  ("a\n-b",                           'asi-minus'),
+  ("x++\ny--",                        'asi-incdec'),
+  ("while(x)\ny()",                   'asi-while'),
+  ("return\n5",                       'asi-return'),
+  ("var a=1\nvar b=2",                'asi-var'),
+  ("a = b ? c : d\nf()",              'asi-ternary'),
+  ("x=1\n(x).toString()",             'asi-paren-expr'),
+  ("if(a)\{b()\}\nelse\{c()\}\nd();", 'asi-else'),
+  ("a=1 // hi\nb=2",                  'asi-linecomment'),
+  ("a=1;\nb=2;\nf();\ng();",          'semicolonated'),
+  ("x = foo(\n  1,\n  2\n)",          'call-args-newlines'),
+  ("obj\n.method()\n.chain()",        'member-chain'),
+  ("var a = obj\n  .m()\n  .n();",    'member-chain-indented'),
+  ("x = /re/g\n.test(s)",             'regex-member'),
+  ("x = a\n/ 2",                      'div-after-newline'),
+  ("x = /a/ in b",                    'regex-in'),
+  ("x = 1; /*! keep */\ny = 2;",      'bang-comment'),
+  ("x = (a\n + b)",                   'paren-plus'),
+  ("x = a +\n b",                     'plus-cont'),
+  ("var   x   =   1   ;",             'hspace'),
+  ('if ( a ) { b ( ) ; c ( 1 , 2 ) ; }', 'padding'),
+);
+for @asi -> ($in, $lbl) { add($in, 'asi:' ~ $lbl) }
+
+my @modern = (
+  '(x) => x * 2;',
+  'foo?.bar?.baz;',
+  'x ?? y : z;',
+  'async function foo() { await bar(); }',
+  'function* gen() { yield* iter(); }',
+  'const { a, b } = obj;',
+  'const [x, y] = arr;',
+  '/pattern/gim.test(str);',
+  'x ? y : z;',
+  'x === y; x !== z;',
+  '[...arr];',
+  'class A extends B {}',
+  '`hello ${name} world`',
+  '`escaped \` backtick`',
+  'x = /re/ instanceof b;',
+  'a=/re/; b in c;',
+  'console.log/ x /;',
+  'var \u0041 = 1;',
+  'var \u{1F600} = 1;',
+  'x = a++/b;',
+  'x = a=b/c;',
+  'a[0]/b;',
+  '(function(){})()',
+  'for(var i=0;i<10;i++){ x(i); }',
+  "'str' + '\\n' + \"d\";",
+  'do { x(); } while (y);',
+  'switch (a) { case 1: b(); break; default: c(); }',
+  'try { f(); } catch (e) { g(e); } finally { h(); }',
+  'new Array(1, 2, 3);',
+  'var o = { a: 1, "k": 2, "j": 3 };',
+  'with (o) { x = 1 }',
+  'export function f() {}',
+  "import x from 'mod';",
+  "typeof x === 'undefined'",
+  '1 in obj',
+  'void 0;',
+  'delete a.b;',
+  'yield 5;',
+);
+my @modern-labels = <arrow optional-chain nullish async-await generator destructure
+  array-destructure regex-flags ternary equality spread class template template-escape
+  regex-instanceof regex-in-stale console-div unicode-esc unicode-esc-brace postfix-div
+  assign-div index-div iife for-loop str-concat do-while switch try-catch new-array
+  object-lit with export import typeof in-op void delete yield>;
+for @modern.kv -> $k, $in { add($in, 'modern:' ~ @modern-labels[$k]) }
+
+sub randjs(Int $seed, Int $n) returns List {
+  my @out;
+  my $seedv = $seed;
+  sub rnd(Int $max) { $seedv = ($seedv * 1103515245 + 12345) % 2147483648; $seedv % $max }
+  my @idents = <a b c d foo bar baz qux obj arr fn res tmp x y z>;
+  my @ops    = '+','-','*','/','%','>','<','>=','<=','===','!==','==','!=','&&','||','??','!!','&','|','^','>>','<<','>>>>';
+  my @keywords = <var let const function return if else while for new typeof in instanceof delete void yield await>;
+  my @nums = <0 1 2 3 7 10 42 3.14 0x1F>;
+  sub pick(@a) { @a[rnd(@a.elems)] }
+  sub id() { pick(@idents) ~ (rnd(3) == 0 ?? Str(rnd(99)) !! '') }
+  sub ws() { my $c = rnd(4); $c == 0 ?? "\n" !! $c == 1 ?? "  " !! $c == 2 ?? "\n  " !! " " }
+  sub expr() {
+    given rnd(6) {
+      when 0 { id() ~ ws() ~ pick(@ops) ~ ws() ~ id() }
+      when 1 { id() ~ '(' ~ id() ~ ')' ~ ws() ~ pick(@ops) ~ ws() ~ id() }
+      when 2 { pick(@nums) ~ ' ' ~ pick(@ops) ~ ' ' ~ pick(@nums) }
+      when 3 { '/' ~ pick(@idents) ~ '/' ~ pick(@ops) ~ ' ' ~ id() }
+      when 4 { id() ~ '.' ~ id() ~ '(' ~ id() ~ ')' }
+      default { pick(@keywords) ~ '(' ~ id() ~ ')' }
+    }
+  }
+  for ^$n {
+    given rnd(6) {
+      when 0 { @out.push(expr() ~ "\n" ~ expr() ~ (rnd(2) == 1 ?? ';' !! '')) }
+      when 1 { @out.push(pick(@keywords) ~ ws() ~ id() ~ (rnd(2) == 1 ?? '()' !! '=' ~ pick(@nums)) ~ ';') }
+      when 2 { @out.push('if (' ~ id() ~ ') {' ~ ws() ~ expr() ~ '} else {' ~ ws() ~ expr() ~ '}') }
+      when 3 { my $s = id(); @out.push('var ' ~ $s ~ ' = ' ~ expr() ~ '; // try ' ~ id()) }
+      when 4 { @out.push("'str" ~ rnd(10) ~ (rnd(3) != 0 ?? "\\'" !! '') ~ "' + " ~ expr() ~ ';') }
+      default { @out.push("/*! keep " ~ rnd(7) ~ ' */ ' ~ expr() ~ ';') }
+    }
+  }
+  @out;
+}
+my @gen = randjs(20260904, 400);
+for @gen.kv -> $k, $in { add($in, "rand:$k") }
+
+my $big-blob;
+{
+  my $unit = q:to/JS/;
+  /*! app bundle v1.0 */
+  var utils = {
+    clamp: function(x, lo, hi) { return Math.max(lo, Math.min(x, hi)); },
+    pad:   function(n, w)     { var s = String(n); while (s.length < w) { s = "0" + s; } return s; }
+  };
+  function render(items) {
+    var out = [];
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.hidden) { continue; }
+      out.push("<li class=\"" + (it.cls || "def") + "\">" + utils.pad(it.id, 4) + ": " + it.name + "</li>");
+    }
+    return out.join("\n");
+  }
+  if (typeof window !== "undefined") { window.Render = render; }
+  JS
+  $big-blob = $unit x 800;
+}
+
+my @combos = (
+  { label => 'plain',                 args => {} },
+  { label => 'aggr',                  args => { :aggressive } },
+  { label => 'strip',                 args => { :strip_debug } },
+  { label => 'bang',                  args => { :keep_bang_comments } },
+  { label => 'console',               args => { :drop_console } },
+  { label => 'debugger',              args => { :drop_debugger } },
+  { label => 'nocompr',               args => { :nocompress } },
+  { label => 'all',                   args => { :aggressive, :strip_debug, :keep_bang_comments, :drop_console, :drop_debugger, :nocompress } },
+  { label => 'aggr+nocompr',          args => { :aggressive, :nocompress } },
+  { label => 'bang+nocompr',          args => { :keep_bang_comments, :nocompress } },
+  { label => 'console+dbg+aggr',      args => { :drop_console, :drop_debugger, :aggressive } },
+);
+
+sub hex(Str $s)  { $s.encode('utf8').list.fmt('%02x', '') }
+sub unhex(Str $h) { Buf.new($h.comb(2).map({ $_.parse-base(16) })).decode('utf8') }
+
+my $gold-file = $*PROGRAM.parent.add('data/goldens.txt');
+my $mismatch = 0;
+my $drift = 0;
+my @detail;
+for $gold-file.lines -> $line {
+  my ($tag, $i, $j, $inhex, $outhex) = $line.split("\t");
+  my $in;
+  if $tag eq 'B' {
+    $in = $big-blob;
+  } else {
+    $in = unhex($inhex);
+    if $in ne @inputs[$i] {
+      $drift++;
+      next;
+    }
+  }
+  my $expect = unhex($outhex);
+  my $out = js-minifier(input => $in, |@combos[$j]<args>);
+  if $out ne $expect {
+    $mismatch++;
+    my $n = $tag eq 'B' ?? 'big-blob' !! %label{$i};
+    @detail.push("[{$n} x {@combos[$j]<label>}] in={$in.substr(0,60)} expect={$expect.substr(0,60)} got={$out.substr(0,60)}");
+    last if $mismatch >= 10;
+  }
+}
+
+my $total = $gold-file.lines.elems;
+ok($mismatch == 0, "differential vs goldens: $total cases byte-identical");
+if $mismatch { .say for @detail; }
+ok($drift == 0, 'corpus regeneration matches goldens (no input drift)');
+if $drift { say "$drift drifted inputs (fixtures may have been renamed/added — refresh t/data/goldens.txt)"; }
+
+done-testing;
