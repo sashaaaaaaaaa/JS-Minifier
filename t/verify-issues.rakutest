@@ -1,0 +1,132 @@
+#!/usr/bin/env raku
+use v6;
+use Test;
+use lib 'lib';
+use JS::Minifier;
+
+plan 16;
+
+# ============================================================
+# BUG #1 FIXED: js-minify alias is now exported
+# ============================================================
+{
+  my $p = run('raku', '-Ilib', '-e',
+    'use JS::Minifier; js-minify(input => "var x=1;").say',
+    :out, :err, :cwd($*CWD));
+  my $out = $p.out.slurp(:close);
+  my $err = $p.err.slurp(:close);
+  is $out, "var x=1;\n", 'BUG #1 FIX: js-minify alias is exported and works';
+  is $err, '', 'BUG #1 FIX: no compile error for js-minify';
+}
+
+# ============================================================
+# BUG #2 FIXED: drop_console no longer crashes on bare "console."
+# ============================================================
+{
+  my $crashed = False;
+  my $result = '';
+  try {
+    $result = js-minifier(input => 'console./x/;', :drop_console);
+    CATCH {
+      default {
+        $crashed = True;
+        note "  UNEXPECTED crash: $_";
+      }
+    }
+  }
+  ok !$crashed, 'BUG #2 FIX: "console./x/;" does not crash with drop_console';
+}
+
+{
+  my $crashed = False;
+  my $result = '';
+  try {
+    $result = js-minifier(input => 'console.', :drop_console);
+    CATCH { default { $crashed = True; note "  UNEXPECTED crash: $_"; } }
+  }
+  ok !$crashed, 'BUG #2 FIX: "console." does not crash with drop_console';
+}
+
+# ============================================================
+# BUG #3 FIXED: drop_console non-call path keeps state consistent
+# ============================================================
+{
+  my $result = js-minifier(input => 'console.log/x/;', :drop_console);
+  is $result, 'console.log/x/;', 'BUG #3: "console.log/x/;" kept verbatim (not a call)';
+}
+
+# ============================================================
+# QUAL #15 FIXED: drop_console only drops standalone statements
+# ============================================================
+{
+  # Chained calls must be KEPT (previously produced dangling ".toString();")
+  is js-minifier(input => 'console.log("x").toString();', :drop_console),
+     'console.log("x").toString();',
+     'QUAL #15 FIX: chained .toString() kept intact';
+  is js-minifier(input => 'var a = console.log("x").valueOf();', :drop_console),
+     'var a=console.log("x").valueOf();',
+     'QUAL #15 FIX: assignment kept intact';
+  is js-minifier(input => 'x = console.warn("y") + 1;', :drop_console),
+     'x=console.warn("y")+1;',
+     'QUAL #15 FIX: sub-expression kept intact';
+  # Standalone statements must still be dropped
+  is js-minifier(input => 'console.log("test");', :drop_console),
+     '',
+     'QUAL #15: standalone console.log dropped';
+  is js-minifier(input => 'console.error("boom"); console.warn("w");', :drop_console),
+     '',
+     'QUAL #15: multiple standalone calls dropped';
+  # console as last statement in block (terminated by })
+  is js-minifier(input => 'if(x){ console.log(y); }', :drop_console),
+     'if(x){}',
+     'QUAL #15: console dropped before closing brace';
+}
+
+# ============================================================
+# BUG #5: CLI --version works
+# ============================================================
+{
+  my $p = run('raku', 'bin/jsminify', '--version', :out, :err, :cwd($*CWD));
+  my $ver = $p.out.slurp(:close);
+  like $ver, /'JS::Minifier v'\d+'.'\d+'.'\d+/, 'BUG #5: --version works';
+}
+
+# ============================================================
+# PERF #6-9: correctness smoke tests
+# ============================================================
+{
+  my $js = (1..1000).map({ "var v$_ = $_;" }).join("\n");
+  my $t0 = now;
+  my $result = js-minifier(input => $js);
+  my $elapsed = now - $t0;
+  ok $result.defined && $result.chars > 0,
+     "PERF #6: 1000-statement minify OK ({$elapsed.fmt('%.3f')}s)";
+}
+
+{
+  my $js = 'var x = 1; var y = 2; ' x 5000;
+  my $result = js-minifier(input => $js);
+  ok $result.defined && $result.chars > 0, 'PERF #7: large input OK';
+}
+
+{
+  my $input = 'var a=1; /* BEGIN NOCOMPRESS */ raw1; /* END NOCOMPRESS */ var b=2; /* BEGIN NOCOMPRESS */ raw2; /* END NOCOMPRESS */ var c=3;';
+  my $result = js-minifier(input => $input, :nocompress);
+  ok $result.contains('raw1') && $result.contains('raw2'),
+     'PERF #8: NOCOMPRESS blocks preserved';
+}
+
+{
+  my @cases = (
+    ['debugger;', ''],
+    ['x=1;debugger;y=2;', 'x=1;y=2;'],
+  );
+  my $all-pass = True;
+  for @cases -> [$input, $expected] {
+    my $got = js-minifier(input => $input, :drop_debugger);
+    $all-pass = False if $got ne $expected;
+  }
+  ok $all-pass, 'PERF #9: drop_debugger correct';
+}
+
+done-testing;

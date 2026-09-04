@@ -1,3 +1,4 @@
 .precomp
 libexamples/
 *-got.js
+AUDIT-LOG.txt

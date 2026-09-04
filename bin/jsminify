@@ -36,14 +36,9 @@ while $i < @*ARGS.elems {
 }
 
 if $version {
-  my $ver = '?';
-  for slurp($*PROGRAM.parent.parent.add('META6.json')).lines -> $line {
-    if $line ~~ /\"version\"/ {
-      my @parts = $line.comb(/\" <-[\"]>* \"/);
-      $ver = @parts[1].subst(/\"/, '', :g) if @parts > 1;
-      last;
-    }
-  }
+  use JSON::Fast;
+  my $meta = slurp($*PROGRAM.parent.parent.add('META6.json'));
+  my $ver  = from-json($meta)<version> // '?';
   say "JS::Minifier v$ver";
   exit 0;
 }

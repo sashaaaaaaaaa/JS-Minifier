@@ -42,9 +42,10 @@ sub is-postfix(Str $x) returns Bool {
 
 sub get(%s) returns Str {
   my Int $pos = %s<input_pos>;
-  return '' if $pos >= %s<input>.elems;
+  my Int $len = %s<input_len>;
+  return '' if $pos >= $len;
   %s<input_pos> = $pos + 1;
-  %s<input>[$pos] // '';
+  %s<input>.substr($pos, 1);
 }
 
 sub step-chr-a(%s) {
@@ -448,22 +449,49 @@ sub process-char(%s) returns Hash {
     }
 
     if $id eq 'console' && %s<drop_console> {
-      my $saved_prevnws = %s<prevnws>;
-      my $saved_lastnws = %s<lastnws>;
-      my $saved_last    = %s<last>;
-      my $saved_last_was_regex = %s<last_was_regex>;
-      %s = collapse-whitespace %s;
-      if %s<a> eq '.' {
-        delete-chr-a(%s);
+      # Only drop a standalone "console.method(args)" statement. A console
+      # call used as a sub-expression (e.g. "console.log(x).toString()" or
+      # "a = console.log(x)") is kept so the output remains valid JS.
+      # Probe a clone of the state to decide without mutating the real stream.
+      my $prev = %s<lastnws>;
+      my Bool $dropit = $prev eq '' || $prev eq ';' || $prev eq '{' || $prev eq '}';
+      if $dropit {
+        my %probe = %s.clone;
+        %probe = collapse-whitespace %probe;
+        if %probe<a> eq '.' {
+          delete-chr-a(%probe);                # consume '.'
+          %probe = collapse-whitespace %probe;
+          %probe = skip-whitespace %probe;
+          my $probe_method = read-id %probe;
+          %probe = collapse-whitespace %probe;
+          %probe = skip-whitespace %probe;
+          $dropit = so($probe_method.chars && %probe<a> eq '(');
+          if $dropit {
+            delete-chr-a(%probe);              # consume '('
+            %probe = skip-matching-paren %probe, '(', ')';
+            %probe = skip-whitespace %probe;
+            $dropit = %probe<a> eq ';' || %probe<a> eq '}' || !%probe<a>;
+          }
+        } else {
+          $dropit = False;
+        }
+      }
+
+      if $dropit {
+        my $saved_prevnws = %s<prevnws>;
+        my $saved_lastnws = %s<lastnws>;
+        my $saved_last    = %s<last>;
+        my $saved_last_was_regex = %s<last_was_regex>;
+        %s = collapse-whitespace %s;
+        delete-chr-a(%s);                      # consume '.'
         %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
         my $method = read-id %s;
         %s = collapse-whitespace %s;
         %s = skip-whitespace %s;
-      if %s<a> eq '(' {
-        delete-chr-a(%s);
+        delete-chr-a(%s);                      # consume '('
         %s = skip-matching-paren %s, '(', ')';
-        %s = collapse-whitespace %s;
+        %s = skip-whitespace %s;
         if %s<a> eq ';' {
           delete-chr-a(%s);
         }
@@ -474,10 +502,20 @@ sub process-char(%s) returns Hash {
         %s<last_was_regex> = $saved_last_was_regex;
         return %s;
       }
+
+      # Not a droppable statement — keep the console expression verbatim.
+      %s = collapse-whitespace %s;
+      if %s<a> eq '.' {
+        delete-chr-a(%s);
+        %s = collapse-whitespace %s;
+        %s = skip-whitespace %s;
+        my $method = read-id %s;
+        %s = collapse-whitespace %s;
+        %s = skip-whitespace %s;
         %s<out>.push('console.' ~ $method);
         %s<prevnws> = %s<lastnws>;
         %s<lastnws> = $method;
-        %s<last> = $method.substr(*-1, 1);
+        %s<last> = $method.chars ?? $method.substr(*-1, 1) !! '.';
       } else {
         %s<out>.push('console');
         %s<prevnws> = %s<lastnws>;
@@ -568,13 +606,14 @@ sub minify-core(:$input!, Str :$copyright = '',
     $preprocessed = @processed.join;
   }
 
-  my Str @input_list = $preprocessed.comb;
-
-  unless @input_list {
+  unless $preprocessed.chars {
     return $copyright ?? "/* $copyright */" !! '';
   }
 
-  my %s = input             => @input_list,
+  my Int $input_len = $preprocessed.chars;
+
+  my %s = input             => $preprocessed,
+          input_len         => $input_len,
           input_pos         => 0,
           out               => [],
           last              => '',
@@ -590,19 +629,19 @@ sub minify-core(:$input!, Str :$copyright = '',
     %s<out>.push("/* $copyright */");
   }
 
-  my Bool $shebang = @input_list && @input_list[0] eq '#' && @input_list.elems > 1 && @input_list[1] eq '!';
+  my Bool $shebang = $input_len > 1 && $preprocessed.substr(0, 1) eq '#' && $preprocessed.substr(1, 1) eq '!';
   if $shebang {
     my $idx = 2;
     my @shebang_line;
-    while $idx < @input_list.elems && !is-endspace(@input_list[$idx]) {
-      @shebang_line.push(@input_list[$idx]);
+    while $idx < $input_len && !is-endspace($preprocessed.substr($idx, 1)) {
+      @shebang_line.push($preprocessed.substr($idx, 1));
       $idx++;
     }
-    @shebang_line.push("\n") if $idx < @input_list.elems && is-endspace(@input_list[$idx]);
+    @shebang_line.push("\n") if $idx < $input_len && is-endspace($preprocessed.substr($idx, 1));
     %s<out>.push('#!' ~ @shebang_line.join);
     %s<input_pos> = $idx;
-    %s<input_pos>++ if $idx < @input_list.elems && is-endspace(@input_list[$idx]);
-    if %s<input_pos> >= @input_list.elems {
+    %s<input_pos>++ if $idx < $input_len && is-endspace($preprocessed.substr($idx, 1));
+    if %s<input_pos> >= $input_len {
       return restore-nocompress(%s<out>.join, @nocompress_blocks, $nocompress);
     }
   }
@@ -651,4 +690,4 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
               :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
 }
 
-my &js-minify := &js-minifier;
+our &js-minify is export = &js-minifier;
