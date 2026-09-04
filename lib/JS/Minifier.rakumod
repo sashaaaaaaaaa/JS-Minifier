@@ -173,9 +173,11 @@ sub skip-whitespace(%s) returns Hash {
 }
 
 sub preserve-endspace(%s) returns Hash {
-  return skip-whitespace(%s) if %s<aggressive>;
   %s = collapse-whitespace(%s);
-  if is-endspace(%s<a>) && !is-postfix(%s<b>) {
+  if is-endspace(%s<a>) && !is-postfix(%s<b>) && !(%s<aggressive> && %s<b> eq '.') {
+    # In aggressive mode a '.' can only continue an expression, so the
+    # separator before it is unnecessary; otherwise keep the newline so
+    # automatic-semicolon-insertion semantics are preserved.
     step-chr-a(%s);
   }
   skip-whitespace(%s)
@@ -207,9 +209,13 @@ sub process-double-plus-minus(%s) returns Hash {
 
 sub process-property-invocation(%s) returns Hash {
   if is-whitespace(%s<a>) {
-    %s<a> = ' ' if %s<aggressive> && is-endspace(%s<a>);
-    if %s<b> && (is-alphanum(%s<b>) || %s<b> eq '.') {
+    if %s<b> && (is-alphanum(%s<b>) || (%s<b> eq '.' && !%s<aggressive>)) {
+      # Need a separator before a following identifier/number, or (outside
+      # aggressive mode) before a member access; keep a single whitespace char.
       step-chr-a(%s);
+    } elsif %s<b> eq '.' {
+      # Aggressive mode: a member-access separator is unnecessary.
+      skip-whitespace(%s);
     } else {
       preserve-endspace(%s);
     }

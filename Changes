@@ -2,6 +2,14 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
+    - Aggressive mode is now ASI-safe: newlines that separate statements
+      are preserved (no longer silently producing invalid or semantically
+      changed output for semicolon-less code); whitespace before '.' is
+      stripped for compact member chains
+    - CLI: -o/--output and -c/--copyright now error when their value is
+      missing; -o no longer truncates a file when run interactively with
+      no input
+
     - Initial release: a fork of JS::Minify by Sam Morrison, rewritten for
       performance and reliability
     - New CLI tool bin/jsminify

@@ -19,8 +19,20 @@ my      @files;
 my $i = 0;
 while $i < @*ARGS.elems {
   given @*ARGS[$i] {
-    when '-o' | '--output'        { $output = @*ARGS[++$i]; }
-    when '-c' | '--copyright'     { $copyright = @*ARGS[++$i]; }
+    when '-o' | '--output' {
+      if $i + 1 >= @*ARGS.elems {
+        note "'-o/--output' requires a value (output file)";
+        exit 2;
+      }
+      $output = @*ARGS[++$i];
+    }
+    when '-c' | '--copyright' {
+      if $i + 1 >= @*ARGS.elems {
+        note "'-c/--copyright' requires a value";
+        exit 2;
+      }
+      $copyright = @*ARGS[++$i];
+    }
     when '-s' | '--strip-debug'   { $strip_debug = True; }
     when '-b' | '--keep-bang-comments' { $keep_bang_comments = True; }
     when '--drop-console'         { $drop_console = True; }
@@ -57,7 +69,8 @@ if $help {
       --drop-console          Remove console.* calls
       --drop-debugger         Remove debugger; statements
       --nocompress            Respect /* BEGIN NOCOMPRESS */ blocks
-      -a, --aggressive        Strip all newlines for single-line output
+      -a, --aggressive        Compact whitespace; keeps newlines that
+                              separate statements (ASI-safe)
       --check                 Only check for errors, no output
       --version               Show version
       -h, --help              Show this help
@@ -88,6 +101,10 @@ if $check {
 
 my $output_fh;
 if $output {
+  if !@files && $*IN.t {
+    note "No input file given and stdin is a terminal. Pass a file or pipe in input.";
+    exit 1;
+  }
   $output_fh = open $output, :w;
   unless $output_fh {
     note "Cannot open '$output' for writing";
