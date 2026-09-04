@@ -2,7 +2,7 @@ use v6;
 use Test;
 use lib 'lib';
 
-plan 13;
+plan 19;
 
 # 1-2: stdin basic
 {
@@ -93,4 +93,31 @@ plan 13;
   $p.in.print('debugger;');
   $p.in.close;
   is $p.out.slurp(:close), '', '--drop-debugger flag';
+}
+
+# 14: --check with missing file reports friendly error
+{
+  my $p = run('raku', 'bin/jsminify', '--check', '/tmp/jsminify-nonexistent.js', :out, :err);
+  my $err = $p.err.slurp(:close);
+  like $err, /'Error in'/, '--check missing file: friendly error message';
+  is $p.exitcode, 1, '--check missing file: exit 1';
+}
+
+# 15: normal mode with missing file reports friendly error
+{
+  my $p = run('raku', 'bin/jsminify', '/tmp/jsminify-nonexistent.js', :out, :err);
+  my $err = $p.err.slurp(:close);
+  like $err, /'Error in'/, 'missing file: friendly error message';
+  is $p.exitcode, 1, 'missing file: exit 1';
+}
+
+# 16: -o to nonexistent directory reports friendly error
+{
+  my $tmp = '/tmp/jsminify-test-o-bad.js';
+  spurt $tmp, 'var x = 1;';
+  my $p = run('raku', 'bin/jsminify', '-o', '/tmp/nonexistent-dir/output.js', $tmp, :out, :err);
+  my $err = $p.err.slurp(:close);
+  like $err, /'Cannot open' .+ 'for writing'/, '-o bad path: friendly error message';
+  is $p.exitcode, 1, '-o bad path: exit 1';
+  unlink $tmp;
 }

@@ -68,19 +68,20 @@ if $help {
 if $check {
   my $has_errors = False;
   for @files -> $file {
-    my $input = slurp $file;
+    my $ok = False;
     try {
+      my $input = slurp $file;
       js-minifier(input => $input, strip_debug => $strip_debug,
                   keep_bang_comments => $keep_bang_comments,
                   drop_console => $drop_console,
                   drop_debugger => $drop_debugger,
                   nocompress => $nocompress,
                   aggressive => $aggressive);
-      CATCH {
-        note "Error in $file: $_";
-        $has_errors = True;
-      }
+      $ok = True;
+      CATCH { default { } }
     }
+    note "Error in $file" unless $ok;
+    $has_errors = True unless $ok;
   }
   exit $has_errors ?? 1 !! 0;
 }
@@ -88,6 +89,10 @@ if $check {
 my $output_fh;
 if $output {
   $output_fh = open $output, :w;
+  unless $output_fh {
+    note "Cannot open '$output' for writing";
+    exit 1;
+  }
 }
 
 my sub minify-and-print(Str $input) {
@@ -100,14 +105,28 @@ my sub minify-and-print(Str $input) {
                               nocompress => $nocompress,
                               aggressive => $aggressive);
   if $output_fh {
-    $output_fh.print($minified);
+    try {
+      $output_fh.print($minified);
+      CATCH {
+        note "Error writing to '$output': $_";
+        exit 1;
+      }
+    }
   } else {
     print $minified;
   }
 }
 
 if @files {
-  minify-and-print($_) for @files.map({ slurp $_ });
+  for @files -> $file {
+    try {
+      minify-and-print(slurp $file);
+      CATCH {
+        note "Error in $file: $_";
+        exit 1;
+      }
+    }
+  }
 } else {
   minify-and-print($*IN.slurp);
 }
