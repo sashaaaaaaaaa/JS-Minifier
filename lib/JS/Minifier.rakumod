@@ -24,7 +24,7 @@ sub is-endspace(Str $x) returns Bool {
 sub is-whitespace(Str $x) returns Bool {
   return False if $x eq '';
   my Int $o = ord($x);
-  $o == 32 || $o == 9 || $o == 10 || $o == 12 || $o == 13 ||
+  $o == 11 || $o == 32 || $o == 9 || $o == 10 || $o == 12 || $o == 13 ||
     $o == 8232 || $o == 8233;
 }
 
@@ -432,6 +432,18 @@ sub process-char(%s) returns Hash {
   if is-alphanum($a) {
     my Str $id = read-id %s;
 
+    # After a regular-expression literal, an immediately adjacent keyword
+    # that begins with a letter (e.g. in / instanceof) would otherwise be
+    # consumed as a regex flag, producing invalid output
+    # (e.g. "/re/instanceof" -> "Invalid regular expression flags"). Only
+    # "in" and "instanceof" can legally follow a regex operand, and both
+    # require a space to keep the output valid. The immediate-predecessor
+    # check (lastnws eq '/') prevents a stale regex flag from adding a
+    # redundant space when the keyword follows something else.
+    if %s<last_was_regex> && %s<lastnws> eq '/' && ($id eq 'in' || $id eq 'instanceof') {
+      %s<out>.push(' ');
+    }
+
     if $id eq 'debugger' && %s<drop_debugger> {
       my $prev = %s<lastnws>;
       if $prev eq '' || $prev eq ';' || $prev eq '{' || $prev eq '}' {
@@ -530,7 +542,7 @@ sub process-char(%s) returns Hash {
     if (%SHORTEN{$id}:exists) {
       if %s<lastnws> ∈ $VAR-LET-CONST || %s<lastnws> eq '.'
           || %s<a> eq ':' || (is-whitespace(%s<a>) && %s<b> eq ':')
-          || %s<a> eq '(' {
+          || %s<a> eq '(' || %s<a> eq '.' || %s<a> eq '[' {
         %s<out>.push($id);
         %s<last> = $id.substr(*-1, 1);
       } else {

@@ -4,7 +4,7 @@ use Test;
 use lib 'lib';
 use JS::Minifier;
 
-plan 16;
+plan 27;
 
 # ============================================================
 # BUG #1 FIXED: js-minify alias is now exported
@@ -127,6 +127,50 @@ plan 16;
     $all-pass = False if $got ne $expected;
   }
   ok $all-pass, 'PERF #9: drop_debugger correct';
+}
+
+# ============================================================
+# BUG #16: true/false shortening safe before . and [
+# ============================================================
+{
+  is js-minifier(input => 'true.toString()'), 'true.toString()',
+     'BUG #16: true.toString() not shortened to !0.toString()';
+  is js-minifier(input => 'true.x'), 'true.x',
+     'BUG #16: true.x not shortened to !0.x';
+  is js-minifier(input => 'true[0]'), 'true[0]',
+     'BUG #16: true[0] not shortened to !0[0]';
+  is js-minifier(input => 'false.toString()'), 'false.toString()',
+     'BUG #16: false.toString() not shortened to !1.toString()';
+  is js-minifier(input => 'false.x'), 'false.x',
+     'BUG #16: false.x not shortened to !1.x';
+  is js-minifier(input => 'false[0]'), 'false[0]',
+     'BUG #16: false[0] not shortened to !1[0]';
+}
+
+# ============================================================
+# BUG #17: vertical tab (U+000B) recognized as whitespace
+# ============================================================
+{
+  my $vt = chr(0x0B);
+  is js-minifier(input => "a{$vt}{$vt}{$vt}b"), "a{$vt}b",
+     'BUG #17: vertical tab collapsed like other whitespace';
+  is js-minifier(input => "var{$vt}x{$vt}={$vt}1;"), "var{$vt}x=1;",
+     'BUG #17: vertical tab between tokens preserved as separator';
+}
+
+# ============================================================
+# BUG #18: space kept between a regex literal and in/instanceof
+# ============================================================
+{
+  # Without a space, "/re/instanceof" / "/re/in" are lexed as regex flags
+  # ("Invalid regular expression flags") — even though the input was valid.
+  is js-minifier(input => 'a = /re/ instanceof b;'), 'a=/re/ instanceof b;',
+     'BUG #18: space kept before instanceof after regex';
+  is js-minifier(input => 'a = /re/ in b;'), 'a=/re/ in b;',
+     'BUG #18: space kept before in after regex';
+  # A stale regex flag (regex earlier in the statement) must not add a space
+  is js-minifier(input => 'a=/re/; b in c;'), 'a=/re/;b in c;',
+     'BUG #18: no redundant space when keyword follows other tokens';
 }
 
 done-testing;
