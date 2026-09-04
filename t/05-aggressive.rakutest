@@ -1,0 +1,125 @@
+#!/usr/bin/env raku
+use v6;
+use Test;
+use lib 'lib';
+use JS::Minifier;
+
+plan 24;
+
+# ============================================================
+# ASI SAFETY: newlines that separate statements MUST be kept,
+# even in aggressive mode (no longer breaks semicolon-less code)
+# ============================================================
+{
+  is js-minifier(input => "a=1\nb=2", :aggressive), "a=1\nb=2",
+     'ASI: newline between assignments kept';
+  is js-minifier(input => "a\n+b", :aggressive), "a\n+b",
+     'ASI: newline before + kept';
+  is js-minifier(input => "a\n-b", :aggressive), "a\n-b",
+     'ASI: newline before - kept';
+  is js-minifier(input => "x++\ny--", :aggressive), "x++\ny--",
+     'ASI: newline between ++/-- statements kept';
+  is js-minifier(input => "while(x)\ny()", :aggressive), "while(x)\ny()",
+     'ASI: newline after condition kept (loop body unchanged)';
+  is js-minifier(input => "return\n5", :aggressive), "return\n5",
+     'ASI: newline after return kept (value not changed)';
+  is js-minifier(input => "var a=1\nvar b=2", :aggressive), "var a=1\nvar b=2",
+     'ASI: newline between var statements kept';
+  is js-minifier(input => "a = b ? c : d\nf()", :aggressive), "a=b?c:d\nf()",
+     'ASI: newline after ternary kept';
+  is js-minifier(input => "x=1\n(x).toString()", :aggressive), "x=1\n(x).toString()",
+     'ASI: newline before parenthesised expression kept';
+  is js-minifier(input => "if(a)\{b()\}\nelse\{c()\}\nd();", :aggressive),
+     "if(a)\{b()\}\nelse\{c()\}\nd();",
+     'ASI: newlines around else and following statement kept';
+  is js-minifier(input => "a=1 // hi\nb=2", :aggressive), "a=1\nb=2",
+     'ASI: comment line-boundary newline kept';
+}
+
+# ============================================================
+# MEMBER CHAINS: whitespace before '.' is stripped (a '.' can
+# only continue an expression, so this is always safe)
+# ============================================================
+{
+  is js-minifier(input => "obj\n.method()\n.chain()", :aggressive),
+     'obj.method().chain()',
+     'chain: multi-line member chain collapses';
+  is js-minifier(input => "var a = obj\n  .m()\n  .n();", :aggressive),
+     'var a=obj.m().n();',
+     'chain: indented member chain collapses';
+  is js-minifier(input => "x = /re/g\n.test(s)", :aggressive), 'x=/re/g.test(s)',
+     'chain: newline before . after regex literal collapses';
+  is js-minifier(input => "obj\n.method()"), "obj\n.method()",
+     'chain: normal mode still keeps the newline (contrast)';
+}
+
+# ============================================================
+# SEMICOLONATED code still collapses to a single line
+# ============================================================
+{
+  is js-minifier(input => "a=1;\nb=2;\nf();\ng();", :aggressive),
+     'a=1;b=2;f();g();',
+     'semicolons: statements joined onto one line';
+  is js-minifier(input => "x = foo(\n  1,\n  2\n)", :aggressive),
+     'x=foo(1,2)',
+     'semicolons: call argument newlines collapsed';
+}
+
+# ============================================================
+# WHITESPACE + OPTIONS still work in aggressive mode
+# ============================================================
+{
+  is js-minifier(input => 'var   x   =   1   ;', :aggressive),
+     'var x=1;',
+     'options: horizontal whitespace collapsed';
+  is js-minifier(input => 'if ( a ) { b ( ) ; c ( 1 , 2 ) ; }', :aggressive),
+     'if(a){b();c(1,2)}',
+     'options: padding around keywords/brackets removed';
+  is js-minifier(input => 'var x = true;', :aggressive), 'var x=!0;',
+     'options: true still shortened';
+  is js-minifier(input => "x = 1; /*! keep */\ny = 2;", :aggressive, :keep_bang_comments),
+     "x=1;/*! keep*/\ny=2;",
+     'options: bang comments still kept, trailing statement newline preserved';
+  is js-minifier(input => 'x = /a/ in b', :aggressive), 'x=/a/ in b',
+     'options: space before in after regex still kept';
+}
+
+# ============================================================
+# IDEMPOTENCY + VALIDITY
+# ============================================================
+{
+  my @inputs = ("a=1\nb=2", "while(x)\ny()", "return\n5",
+                "obj\n.method()\n.chain()", "a=1;\nb=2;", "a\n+b");
+  my $idempotent = True;
+  for @inputs -> $in {
+    my $once  = js-minifier(input => $in, :aggressive);
+    my $twice = js-minifier(input => $once, :aggressive);
+    $idempotent = False if $once ne $twice;
+  }
+  ok $idempotent, 'idempotent: re-minifying aggressive output is a no-op';
+}
+
+{
+  my $has-node = True;
+  try {
+    my $p = run('node', '--version', :out, :err);
+    $has-node = $p.exitcode == 0;
+    CATCH { default { $has-node = False; } }
+  }
+  if $has-node {
+    my $checked = 0;
+    for ("a=1\nb=2", "while(x)\ny()", "return\n5",
+         "a=b?c:d\nf()", "var a=obj\n.m()\n.n();", "x=/re/g.test(s)") -> $in {
+      my $f = "/tmp/aggressive-check-$*PID.js";
+      spurt $f, js-minifier(input => $in, :aggressive);
+      my $p = run('node', '--check', $f, :err);
+      $checked++ if $p.exitcode == 0;
+      unlink $f;
+    }
+    is $checked, 6, 'validity: all aggressive outputs are valid JS (node --check)';
+  } else {
+    skip 'node not available, skipping syntax validation', 1;
+  }
+}
+
+done-testing;
