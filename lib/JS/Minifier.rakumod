@@ -244,9 +244,18 @@ sub minify-core(:$input!, Str :$copyright = '',
     }
   }
 
+  my sub dot-join-safe() returns Bool {
+    # A plain decimal integer (e.g. "5") must never be joined directly to a
+    # following '.': "5.toString()" is a SyntaxError because the '.' starts a
+    # fraction. Numbers that already have a fraction or exponent are
+    # unambiguous, so their separator can still be dropped in aggressive mode.
+    !($lastnws ~~ /^\d+$/ && $prevnws ne '.');
+  }
+
   my sub preserve-endspace() {
     collapse-whitespace();
-    if is-endspace($a) && !is-postfix($b) && !($aggressive && $b eq '.') {
+    if is-endspace($a) && !is-postfix($b)
+        && !($aggressive && $b eq '.' && dot-join-safe()) {
       # In aggressive mode a '.' can only continue an expression, so the
       # separator before it is unnecessary; otherwise keep the newline so
       # automatic-semicolon-insertion semantics are preserved.
@@ -280,8 +289,14 @@ sub minify-core(:$input!, Str :$copyright = '',
         # aggressive mode) before a member access; keep a single whitespace char.
         step-chr-a();
       } elsif $b eq '.' {
-        # Aggressive mode: a member-access separator is unnecessary.
-        skip-whitespace();
+        if dot-join-safe() {
+          # Aggressive mode: a member-access separator is unnecessary.
+          skip-whitespace();
+        } else {
+          # A decimal integer precedes the '.': keep a separator so the
+          # output stays valid ("5.toString()" would be a syntax error).
+          step-chr-a();
+        }
       } else {
         preserve-endspace();
       }

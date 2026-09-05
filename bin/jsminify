@@ -62,18 +62,18 @@ if $help {
     Minify JavaScript file(s). Reads from stdin if no file given.
 
     Options:
-      -o, --output FILE       Write output to FILE (default: stdout)
-      -c, --copyright TEXT    Include copyright comment at top of output
-      -s, --strip-debug       Strip lines beginning with ;;; (debug convention)
-      -b, --keep-bang-comments Preserve /*! important comments */
-      --drop-console          Remove console.* calls
-      --drop-debugger         Remove debugger; statements
-      --nocompress            Respect /* BEGIN NOCOMPRESS */ blocks
-      -a, --aggressive        Compact whitespace; keeps newlines that
-                              separate statements (ASI-safe)
-      --check                 Only check for errors, no output
-      --version               Show version
-      -h, --help              Show this help
+      -o, --output FILE         Write output to FILE (default: stdout)
+      -c, --copyright TEXT      Include copyright comment at top of output
+      -s, --strip-debug         Strip lines beginning with ;;; (debug convention)
+      -b, --keep-bang-comments  Preserve /*! important comments */
+      --drop-console            Remove console.* calls
+      --drop-debugger           Remove debugger; statements
+      --nocompress              Respect /* BEGIN NOCOMPRESS */ blocks
+      -a, --aggressive          Compact whitespace; keeps newlines that
+                                separate statements (ASI-safe)
+      --check                   Only check for errors, no output
+      --version                 Show version
+      -h, --help                Show this help
     HELP
   exit 0;
 }

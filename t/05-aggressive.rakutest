@@ -4,7 +4,7 @@ use Test;
 use lib 'lib';
 use JS::Minifier;
 
-plan 24;
+plan 31;
 
 # ============================================================
 # ASI SAFETY: newlines that separate statements MUST be kept,
@@ -37,8 +37,9 @@ plan 24;
 }
 
 # ============================================================
-# MEMBER CHAINS: whitespace before '.' is stripped (a '.' can
-# only continue an expression, so this is always safe)
+# MEMBER CHAINS: whitespace before '.' on identifiers is
+# stripped (a '.' can only continue an expression, so this is
+# always safe — except after a decimal integer, see below)
 # ============================================================
 {
   is js-minifier(input => "obj\n.method()\n.chain()", :aggressive),
@@ -51,6 +52,35 @@ plan 24;
      'chain: newline before . after regex literal collapses';
   is js-minifier(input => "obj\n.method()"), "obj\n.method()",
      'chain: normal mode still keeps the newline (contrast)';
+}
+
+# ============================================================
+# NUMBER + DOT boundary: a plain decimal integer must never be
+# joined to a following '.' ("5.toString()" is a SyntaxError),
+# even in aggressive mode
+# ============================================================
+{
+  is js-minifier(input => "var a = 5\n.toString();", :aggressive),
+     "var a=5\n.toString();",
+     'numdot: newline kept before dot after integer';
+  is js-minifier(input => "var a = 5 .toString();", :aggressive),
+     "var a=5 .toString();",
+     'numdot: space kept before dot after integer';
+  is js-minifier(input => "var a = 42\n .toFixed(2);", :aggressive),
+     "var a=42\n.toFixed(2);",
+     'numdot: separator kept for multi-char integer';
+  is js-minifier(input => "var a = 5 // hi\n.toString();", :aggressive),
+     "var a=5\n.toString();",
+     'numdot: newline kept after integer + comment';
+  is js-minifier(input => "var a = 3.14\n.toString();", :aggressive),
+     "var a=3.14.toString();",
+     'numdot: fraction number still collapses (3.14.toString is valid)';
+  is js-minifier(input => "var a = 0x1F\n.toString();", :aggressive),
+     "var a=0x1F.toString();",
+     'numdot: hex number still collapses (0x1F.toString is valid)';
+  is js-minifier(input => "var a = 1e3\n.toString();", :aggressive),
+     "var a=1e3.toString();",
+     'numdot: exponent number still collapses (1e3.toString is valid)';
 }
 
 # ============================================================
