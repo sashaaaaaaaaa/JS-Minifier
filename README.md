@@ -20,7 +20,8 @@ JS::Minifier is considered safe:
 - NOCOMPRESS blocks (`/* BEGIN NOCOMPRESS */`)
 - `drop_console` / `drop_debugger` options
 - Multi-line string continuation (ECMA-5) stripping
-- Better error messages with line/column context
+- `--aggressive` option: compacts whitespace while keeping newlines that
+  separate statements (ASI-safe)
 
 # Synopsis
 
@@ -101,7 +102,7 @@ If no file is given, reads from stdin. See `jsminify --help` for options.
 
 This module removes unnecessary whitespace from JavaScript code. The primary requirement developing this module is to not break working code: if working JavaScript is input then working JavaScript is output. It is ok if the input has missing semi-colons, snips like '++ +' or '12 .toString()', for example. Internet Explorer conditional comments are copied to the output but the code inside these comments will not be minified.
 
-The ECMAScript specifications allow for many different whitespace characters: space, horizontal tab, vertical tab, new line, carriage return, form feed, and paragraph separator. This module understands all of these as whitespace except for vertical tab and paragraph separator. These two types of whitespace are not minimized.
+The ECMAScript specifications allow for many different whitespace characters: space, horizontal tab, vertical tab, new line, carriage return, form feed, and paragraph separator. This module understands all of these, plus the U+2028 line separator, as whitespace and minimizes them. U+2028, U+2029, line feed, carriage return, and form feed are treated as line terminators, so the newlines that separate statements are still preserved where they affect automatic semicolon insertion.
 
 For static JavaScript files, it is recommended that you minify during the build stage of web deployment. If you minify on-the-fly then it might be a good idea to cache the minified file. Minifying static files on-the-fly repeatedly is wasteful.
 
