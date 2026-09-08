@@ -80,11 +80,13 @@ if $help {
 
 if $check {
   my $has_errors = False;
-  for @files -> $file {
+  my sub check-input(Str $source) {
     my $ok = False;
     try {
-      my $input = slurp $file;
-      js-minifier(input => $input, strip_debug => $strip_debug,
+      my $input = $source eq '(stdin)' ?? $*IN.slurp !! slurp $source;
+      js-minifier(input => $input,
+                  copyright => $copyright,
+                  strip_debug => $strip_debug,
                   keep_bang_comments => $keep_bang_comments,
                   drop_console => $drop_console,
                   drop_debugger => $drop_debugger,
@@ -93,16 +95,21 @@ if $check {
       $ok = True;
       CATCH { default { } }
     }
-    note "Error in $file" unless $ok;
+    note "Error in $source" unless $ok;
     $has_errors = True unless $ok;
+  }
+  if @files {
+    check-input($_) for @files;
+  } elsif !$*IN.t {
+    check-input('(stdin)');
   }
   exit $has_errors ?? 1 !! 0;
 }
 
 my $output_fh;
 if $output {
-  if !@files && $*IN.t {
-    note "No input file given and stdin is a terminal. Pass a file or pipe in input.";
+  if @files.elems > 1 {
+    note "-o/--output cannot be combined with multiple input files (outputs would be concatenated with no separator).";
     exit 1;
   }
   $output_fh = open $output, :w;
@@ -119,8 +126,8 @@ my sub minify-and-print(Str $input) {
                              keep_bang_comments => $keep_bang_comments,
                              drop_console => $drop_console,
                              drop_debugger => $drop_debugger,
-                              nocompress => $nocompress,
-                              aggressive => $aggressive);
+                             nocompress => $nocompress,
+                             aggressive => $aggressive);
   if $output_fh {
     try {
       $output_fh.print($minified);
@@ -144,6 +151,9 @@ if @files {
       }
     }
   }
+} elsif $*IN.t {
+  note "No input file given and stdin is a terminal. Pass a file or pipe in input.";
+  exit 1;
 } else {
   minify-and-print($*IN.slurp);
 }

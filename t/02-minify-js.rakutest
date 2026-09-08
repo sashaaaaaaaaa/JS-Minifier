@@ -4,7 +4,7 @@ use Test::Output;
 use lib 'lib';
 use JS::Minifier;
 
-plan 40;
+plan 43;
 
 sub min-test($filename) {
   my $infile = open("t/scripts/$filename.js") or die("couldn't open file");
@@ -85,3 +85,17 @@ is js-minifier(input => '{true: 1, false: 2}'), '{true:1,false:2}', 'true/false 
 is js-minifier(input => ";;;debug\nconsole.log('x');\ndebugger;", :strip_debug, :drop_console, :drop_debugger),
    '',
    'combo strip_debug + drop_console + drop_debugger';
+
+# Streaming: the minified result is always sent on the Channel, even when it
+# is the empty string (e.g. an input of only comments/whitespace). Previously
+# an empty result was not sent, so a consumer's receive() returned undef.
+{
+  my $ch = Channel.new;
+  js-minifier(input => '   /* only a comment */   ', :stream($ch));
+  is $ch.receive, '', 'stream: empty minified result still sent';
+  ok $ch.closed, 'stream: channel closed after empty result';
+
+  my $ch2 = Channel.new;
+  js-minifier(input => 'var x = 1;', :stream($ch2));
+  is $ch2.receive, 'var x=1;', 'stream: non-empty result sent';
+}

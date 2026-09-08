@@ -2,7 +2,7 @@ use v6;
 use Test;
 use lib 'lib';
 
-plan 19;
+plan 23;
 
 # 1-2: stdin basic
 {
@@ -120,4 +120,27 @@ plan 19;
   like $err, /'Cannot open' .+ 'for writing'/, '-o bad path: friendly error message';
   is $p.exitcode, 1, '-o bad path: exit 1';
   unlink $tmp;
+}
+
+# 20-21: --check validates piped stdin
+{
+  my $p = run('raku', 'bin/jsminify', '--check', :in, :out, :err);
+  $p.in.print('var x = ;');
+  $p.in.close;
+  is $p.err.slurp(:close), '', '--check piped stdin (valid): no error output';
+  is $p.exitcode, 0, '--check piped stdin (valid): exit 0';
+}
+
+# 22-23: -o refuses multiple input files (would concatenate with no separator)
+{
+  my $f1 = '/tmp/jsminify-multi1.js';
+  my $f2 = '/tmp/jsminify-multi2.js';
+  spurt $f1, 'var a = 1;';
+  spurt $f2, 'var b = 2;';
+  my $p = run('raku', 'bin/jsminify', '-o', '/tmp/jsminify-multi-out.js', $f1, $f2, :out, :err);
+  my $err = $p.err.slurp(:close);
+  like $err, /'cannot be combined'/, '-o + multiple files: friendly error message';
+  is $p.exitcode, 1, '-o + multiple files: exit 1';
+  unlink $f1;
+  unlink $f2;
 }

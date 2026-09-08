@@ -487,6 +487,31 @@ sub minify-core(:$input!, Str :$copyright = '',
     @id.join;
   }
 
+  # Snapshot of the mutable minifier state, used by drop_debugger /
+  # drop_console to probe how the following stream looks without committing
+  # to a decision. Indexes: 0..4 look-ahead window ($pos, $a..$d),
+  # 5..8 emitted-token bookkeeping ($prevnws, $lastnws, $last,
+  # $last-was-regex).
+  my sub snapshot-state() returns List {
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex);
+  }
+
+  # Rewind the look-ahead window, emitted-token bookkeeping, and @out to a
+  # captured snapshot. Used after a probe that decided NOT to consume: the
+  # stream must be left exactly as it was before the probe ran.
+  my sub restore-lookahead(@s, Int $out-elems) {
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex) = @s;
+    @out.splice($out-elems);
+  }
+
+  # Restore only the emitted-token bookkeeping, keeping the already-advanced
+  # look-ahead window. Used when a statement is genuinely consumed/removed,
+  # because the removal leaves trailing-state set as if the statement never
+  # emitted any token.
+  my sub restore-token-state(@s) {
+    ($prevnws, $lastnws, $last, $last-was-regex) = @s[5..8];
+  }
+
   my sub process-char() {
     my Str $ca = $a;
     if $ca eq '/' {
@@ -541,7 +566,8 @@ sub minify-core(:$input!, Str :$copyright = '',
         my $prev = $lastnws;
         if $prev eq '' || $prev eq ';' || $prev eq '{' || $prev eq '}' {
           # Probe the following stream to decide without mutating the real state.
-          my $sf-pos = $pos; my $sf-a = $a; my $sf-b = $b; my $sf-c = $c; my $sf-d = $d;
+          my @snap = snapshot-state();
+          my $out-elems = @out.elems;
           collapse-whitespace();
           skip-whitespace();
           if $a eq ';' || $a eq '}' || !$a {
@@ -551,7 +577,7 @@ sub minify-core(:$input!, Str :$copyright = '',
             skip-whitespace();
             return;
           }
-          $pos = $sf-pos; $a = $sf-a; $b = $sf-b; $c = $sf-c; $d = $sf-d;
+          restore-lookahead(@snap, $out-elems);
         }
       }
 
@@ -563,10 +589,8 @@ sub minify-core(:$input!, Str :$copyright = '',
         my $prev = $lastnws;
         my Bool $dropit = $prev eq '' || $prev eq ';' || $prev eq '{' || $prev eq '}';
         if $dropit {
-          my $pf-pos = $pos; my $pf-a = $a; my $pf-b = $b; my $pf-c = $c; my $pf-d = $d;
-          my $pf-prevnws = $prevnws; my $pf-lastnws = $lastnws;
-          my $pf-last = $last; my $pf-lwr = $last-was-regex;
-          my $pf-out = @out.elems;
+          my @snap = snapshot-state();
+          my $out-elems = @out.elems;
           collapse-whitespace();
           if $a eq '.' {
             delete-chr-a();                # consume '.'
@@ -585,17 +609,13 @@ sub minify-core(:$input!, Str :$copyright = '',
           } else {
             $dropit = False;
           }
-          $pos = $pf-pos; $a = $pf-a; $b = $pf-b; $c = $pf-c; $d = $pf-d;
-          $prevnws = $pf-prevnws; $lastnws = $pf-lastnws;
-          $last = $pf-last; $last-was-regex = $pf-lwr;
-          @out.splice($pf-out);
+          restore-lookahead(@snap, $out-elems);
         }
 
         if $dropit {
-          my $saved-prevnws = $prevnws;
-          my $saved-lastnws = $lastnws;
-          my $saved-last    = $last;
-          my $saved-lwr     = $last-was-regex;
+          # The standalone statement is removed entirely, so after consuming
+          # it the emitted-token bookkeeping must look as if it never existed.
+          my @snap = snapshot-state();
           collapse-whitespace();
           delete-chr-a();                      # consume '.'
           collapse-whitespace();
@@ -610,10 +630,7 @@ sub minify-core(:$input!, Str :$copyright = '',
             delete-chr-a();
           }
           skip-whitespace();
-          $prevnws = $saved-prevnws;
-          $lastnws = $saved-lastnws;
-          $last    = $saved-last;
-          $last-was-regex = $saved-lwr;
+          restore-token-state(@snap);
           return;
         }
 
@@ -721,7 +738,7 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
       $stream.close;
       die $!;
     }
-    $stream.send($result) if $result.chars;
+    $stream.send($result);
     $stream.close;
     return;
   }
