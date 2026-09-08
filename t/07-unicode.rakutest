@@ -1,0 +1,108 @@
+#!/usr/bin/env raku
+use v6;
+use Test;
+use lib 'lib';
+use JS::Minifier;
+
+plan 20;
+
+# ============================================================
+# BUG 1: is-alphanum no longer swallows non-ASCII non-identifier
+# characters (previously `ord > 126` treated everything as a
+# valid identifier char, merging punctuation like em-dash).
+# ============================================================
+{
+  my $emdash = chr(0x2014);
+  is js-minifier(input => 'a' ~ $emdash ~ 'b'), 'a' ~ $emdash ~ 'b',
+     'em-dash separates tokens (not merged into identifier)';
+
+  my $lsquo = chr(0x2018);   # left single quotation mark (not a letter)
+  is js-minifier(input => 'a' ~ $lsquo ~ 'b'), 'a' ~ $lsquo ~ 'b',
+     'quotation mark separates tokens';
+}
+
+# ============================================================
+# BUG 1b: Unicode letters remain valid identifier characters
+# ============================================================
+{
+  my $eacute = chr(0xE9);    # é: Latin small letter e with acute (Lu/Ll)
+  is js-minifier(input => 'var c' ~ $eacute ~ ' = 1;'), 'var c' ~ $eacute ~ '=1;',
+     'Unicode letter in identifier: preserved';
+
+  my $cyr = chr(0x41F);      # Cyrillic П
+  is js-minifier(input => $cyr ~ 'x=1;'), $cyr ~ 'x=1;',
+     'Cyrillic identifier start: preserved';
+}
+
+# ============================================================
+# BUG 2: is-whitespace now covers the full ECMAScript WhiteSpace
+# production. Each separator should be stripped.
+# ============================================================
+{
+  my @ws = (
+    0x00A0,   # NO-BREAK SPACE
+    0x1680,   # OGHAM SPACE MARK
+    0x2000,   # EN QUAD
+    0x2003,   # EM SPACE
+    0x2009,   # THIN SPACE
+    0x202F,   # NARROW NO-BREAK SPACE
+    0x205F,   # MEDIUM MATHEMATICAL SPACE
+    0x3000,   # IDEOGRAPHIC SPACE
+    0xFEFF,   # ZERO WIDTH NO-BREAK SPACE (BOM)
+  );
+  for @ws.kv -> $i, $cp {
+    my $sep = chr($cp);
+    my $res = js-minifier(input => 'var x = 1;' ~ $sep ~ 'var y = 2;');
+    is $res, 'var x=1;var y=2;', "U+{$cp.fmt('%04X')} treated as whitespace";
+  }
+}
+
+# ============================================================
+# Bug 1+2 interaction: whitespace inside a paren is stripped and
+# not conflated with identifier chars.
+# ============================================================
+{
+  my $nbsp = chr(0x00A0);
+  my $res = js-minifier(input => 'if(' ~ $nbsp ~ 'x){foo()}');
+  is $res, 'if(x){foo()}', 'NBSP inside parens: stripped';
+}
+
+# ============================================================
+# Identifier continuation chars (Mn/Mc/Pc/ZWNJ/ZWJ) are valid
+# as non-first, non-ASCII identifier characters.
+# ============================================================
+{
+  my $comb = chr(0x301);   # combining acute accent (Mn)
+  is js-minifier(input => 'caf' ~ $comb ~ 'e=1;'), 'caf' ~ $comb ~ 'e=1;',
+     'combining mark continues identifier';
+
+  my $conn = chr(0x203F);  # undertie (Pc)
+  is js-minifier(input => 'a' ~ $conn ~ 'b=1;'), 'a' ~ $conn ~ 'b=1;',
+     'connector punctuation continues identifier';
+
+  my $zwnj = chr(0x200C);  # ZERO WIDTH NON-JOINER (format char)
+  is js-minifier(input => 'a' ~ $zwnj ~ 'b=1;'), 'a' ~ $zwnj ~ 'b=1;',
+     'ZWNJ continues identifier';
+}
+
+# ============================================================
+# Numbers and identifiers remain separable (both are "alnum")
+# ============================================================
+{
+  is js-minifier(input => 'a=1 b=2'), 'a=1 b=2',
+     'number and identifier separated by space preserved';
+}
+
+# ============================================================
+# NOCOMPRESS single-pass replacement still byte-correct
+# ============================================================
+{
+  is js-minifier(input => 'var a=1; /* BEGIN NOCOMPRESS */ raw1; /* END NOCOMPRESS */ var b=2;', :nocompress),
+     'var a=1; raw1; var b=2;',
+     'nocompress single block restored';
+  is js-minifier(input => '/* BEGIN NOCOMPRESS */ r1 /* END NOCOMPRESS */ /* BEGIN NOCOMPRESS */ r2 /* END NOCOMPRESS */', :nocompress),
+     ' r1  r2 ',
+     'nocompress multiple blocks restored in order';
+}
+
+done-testing;

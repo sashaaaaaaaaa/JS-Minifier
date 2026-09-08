@@ -4,15 +4,29 @@ unit module JS::Minifier;
 
 my constant %SHORTEN    = 'true' => '!0', 'false' => '!1';
 
+# ECMAScript IdentifierStart: $, _, Unicode letters (Lu Ll Lt Lm Lo), letter
+# numbers (Nl), plus '\\' for escaped identifiers.
+sub is-id-start(Str $x) returns Bool {
+  return False if $x eq '';
+  my Int $o = ord($x);
+  return True if $o >= 65 && $o <= 90;    # A-Z
+  return True if $o >= 97 && $o <= 122;   # a-z
+  return True if $o == 0x5F || $o == 0x24 || $o == 0x5C;  # _ $ \
+  $o > 126 && (so($x ~~ /<:L>/) || so($x ~~ /<:Nl>/));
+}
+
+# ECMAScript IdentifierPart: IdentifierStart + decimal digits (Nd) + combining
+# marks (Mn Mc) + connector punctuation (Pc) + ZWNJ/ZWJ format chars. Used for
+# the continuation characters of an identifier or number literal.
 sub is-alphanum(Str $x) returns Bool {
   return False if $x eq '';
   my Int $o = ord($x);
-  return True if $o >= 48 && $o <= 57;   # 0-9
-  return True if $o >= 65 && $o <= 90;   # A-Z
-  return True if $o >= 97 && $o <= 122;  # a-z
-  return True if $x eq '_' || $x eq '$' || $x eq '\\';
-  return True if $o > 126;               # approximation for non-ASCII
-  False;
+  return True if $o >= 48 && $o <= 57;    # 0-9 (Nd, fast path)
+  return True if is-id-start($x);
+  $o > 126 && (
+    so($x ~~ /<:Nd>/) || so($x ~~ /<:Mn>/) || so($x ~~ /<:Mc>/) ||
+    so($x ~~ /<:Pc>/) || $o == 0x200C || $o == 0x200D   # ZWNJ ZWJ
+  );
 }
 
 sub is-endspace(Str $x) returns Bool {
@@ -24,8 +38,12 @@ sub is-endspace(Str $x) returns Bool {
 sub is-whitespace(Str $x) returns Bool {
   return False if $x eq '';
   my Int $o = ord($x);
-  $o == 11 || $o == 32 || $o == 9 || $o == 10 || $o == 12 || $o == 13 ||
-    $o == 8232 || $o == 8233;
+  # ECMAScript WhiteSpace and LineTerminator productions
+  $o == 0x0009 || $o == 0x000B || $o == 0x000C || $o == 0x0020 ||  # HT VT FF SP
+  $o == 0x00A0 || $o == 0x1680 || $o == 0x202F || $o == 0x205F ||  # NBSP OGHAM NNBSP MMSP
+  $o == 0x3000 || $o == 0xFEFF ||                                  # IDEOGRAPHIC BOM
+  ($o >= 0x2000 && $o <= 0x200A) ||                                # EN QUAD .. HAIR SPACE
+  is-endspace($x);
 }
 
 sub is-infix(Str $x) returns Bool {
@@ -51,15 +69,17 @@ sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bo
   is-whitespace($a) && $b eq '/' && ($c eq '/' || $c eq '*') && $d eq '@';
 }
 
-sub restore-nocompress(Str $result, @nocompress_blocks, Bool $nocompress) returns Str {
-  if $nocompress && @nocompress_blocks {
-    my $out = $result;
-    for @nocompress_blocks -> $block {
-      $out .= subst($block[0], $block[1], :g);
-    }
-    return $out;
-  }
-  $result;
+# Replace the NUL-delimited NOCOMPRESS placeholder keys with their raw-block
+# values in a single pass. Uses a single scan of the output (O(output)),
+# independent of the number of blocks (the previous per-block :g subst was
+# O(blocks x output)). The placeholder format \x00N<idx>N\x00 cannot collide
+# with NUL-free JS source.
+sub restore-nocompress(Str $result, @nocompress_blocks) returns Str {
+  return $result unless @nocompress_blocks;
+  my %map = @nocompress_blocks.map(-> [$key, $block] { $key => $block });
+  $result.subst(/ "\x00N" (\d+) "N\x00" /, -> $/ {
+    %map{"\x00N" ~ $0 ~ "N\x00"} // ~$/
+  } , :g);
 }
 
 sub minify-core(:$input!, Str :$copyright = '',
@@ -309,8 +329,8 @@ sub minify-core(:$input!, Str :$copyright = '',
     $lastnws = $open;
     $last = $open;
     while $depth && $a {
-      my Str $c = $a;
-      if $c eq '/' {
+      my Str $ch = $a;
+      if $ch eq '/' {
         if $b eq '*' {
           while $a && !($a eq '*' && $b eq '/') {
             delete-chr-a();
@@ -333,19 +353,19 @@ sub minify-core(:$input!, Str :$copyright = '',
           next;
         }
       }
-      if $c eq "'" || $c eq '"' || $c eq '`' {
+      if $ch eq "'" || $ch eq '"' || $ch eq '`' {
         my $out-start = @out.elems;
         put-literal();
         @out.splice($out-start);
         next;
       }
-      if $c eq $open  { $depth++; }
-      if $c eq $close { $depth--; }
-      if !is-whitespace($c) {
+      if $ch eq $open  { $depth++; }
+      if $ch eq $close { $depth--; }
+      if !is-whitespace($ch) {
         $prevnws = $lastnws;
-        $lastnws = $c;
+        $lastnws = $ch;
       }
-      $last = $c;
+      $last = $ch;
       delete-chr-a();
     }
   }
@@ -699,7 +719,7 @@ sub minify-core(:$input!, Str :$copyright = '',
     $pos = $idx;
     $pos++ if $idx < $len && is-endspace($input-text.substr($idx, 1));
     if $pos >= $len {
-      return restore-nocompress(@out.join, @nocompress_blocks, $nocompress);
+      return restore-nocompress(@out.join, @nocompress_blocks);
     }
   }
 
@@ -718,7 +738,7 @@ sub minify-core(:$input!, Str :$copyright = '',
     process-char();
   }
 
-  return restore-nocompress(@out.join, @nocompress_blocks, $nocompress);
+  return restore-nocompress(@out.join, @nocompress_blocks);
 }
 
 sub js-minifier(:$input!, Str :$copyright = '', :$stream,
