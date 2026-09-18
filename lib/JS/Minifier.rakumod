@@ -69,18 +69,12 @@ sub on-whitespace-conditional-comment(Str $a, Str $b, Str $c, Str $d) returns Bo
   is-whitespace($a) && $b eq '/' && ($c eq '/' || $c eq '*') && $d eq '@';
 }
 
-# Replace the NUL-delimited NOCOMPRESS placeholder keys with their raw-block
-# values in a single pass. Uses a single scan of the output (O(output)),
-# independent of the number of blocks (the previous per-block :g subst was
-# O(blocks x output)). The placeholder format \x00N<idx>N\x00 cannot collide
-# with NUL-free JS source.
-sub restore-nocompress(Str $result, @nocompress_blocks) returns Str {
-  return $result unless @nocompress_blocks;
-  my %map = @nocompress_blocks.map(-> [$key, $block] { $key => $block });
-  $result.subst(/ "\x00N" (\d+) "N\x00" /, -> $/ {
-    %map{"\x00N" ~ $0 ~ "N\x00"} // ~$/
-  } , :g);
-}
+my constant $NOCOMPRESS-BEGIN = '/* BEGIN NOCOMPRESS */';
+my constant $NOCOMPRESS-END   = '/* END NOCOMPRESS */';
+# The block-comment body collected by the state machine has the closing `*/`
+# still in the look-ahead window, so the collected text is everything before
+# it: the tag minus its trailing two characters.
+my constant $NOCOMPRESS-BEGIN-BODY = $NOCOMPRESS-BEGIN.substr(0, *-2);
 
 sub minify-core(:$input!, Str :$copyright = '',
                 Bool :$strip_debug = False,
@@ -96,34 +90,6 @@ sub minify-core(:$input!, Str :$copyright = '',
   $input_new .= subst("\r\n", "\n", :g);
 
   my Str $input-text = $input_new;
-  my @nocompress_blocks;
-
-  if $strip_debug {
-    $input-text = $input-text.subst(/ [ ^ | <?after \n> ] \s* ";;;" <-[\n]>* \n? /, '', :g);
-  }
-
-  if $nocompress {
-    constant $BEGIN_TAG = '/* BEGIN NOCOMPRESS */';
-    constant $END_TAG   = '/* END NOCOMPRESS */';
-    my Str @processed;
-    my $pos = 0;
-    my $idx = 0;
-    loop {
-      my $begin = index($input-text, $BEGIN_TAG, $pos);
-      last unless $begin.defined;
-      @processed.push(substr($input-text, $pos, $begin - $pos));
-      my $end = index($input-text, $END_TAG, $begin);
-      die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
-      my $block = substr($input-text, $begin + $BEGIN_TAG.chars, $end - $begin - $BEGIN_TAG.chars);
-      my $key = "\x00N" ~ $idx ~ "N\x00";
-      @nocompress_blocks.push([$key, $block]);
-      @processed.push($key);
-      $pos = $end + $END_TAG.chars;
-      $idx++;
-    }
-    @processed.push(substr($input-text, $pos));
-    $input-text = @processed.join;
-  }
 
   unless $input-text.chars {
     return $copyright ?? "/* $copyright */" !! '';
@@ -136,7 +102,19 @@ sub minify-core(:$input!, Str :$copyright = '',
   my Str $prevnws    = '';
   my Str $lastnws    = '';
   my Bool $last-was-regex = False;
+  my Int $a-idx = 0;
   my Str $a = ''; my Str $b = ''; my Str $c = ''; my Str $d = '';
+
+  # Whether the current window position ($a) sits at the start of a line.
+  # The index of $a within the input is tracked exactly, so the status is
+  # derived from the preceding input character. This is exact even when the
+  # state machine consumes characters out of order (delete-chr-b removes a
+  # char beyond $a), and it can never misfire on a `;;;` that lives inside a
+  # string or template literal, because those are consumed atomically before
+  # any of their characters ever reaches $a.
+  my sub at-line-start() returns Bool {
+    $a-idx == 0 ?? True !! is-endspace($input-text.substr($a-idx - 1, 1));
+  }
 
   my sub get() returns Str {
     return '' if $pos >= $len;
@@ -152,6 +130,7 @@ sub minify-core(:$input!, Str :$copyright = '',
     }
     $last = $a;
     @out.push($a) if $a;
+    $a-idx++;
     $a = $b;
     $b = $c;
     $c = $d;
@@ -160,6 +139,7 @@ sub minify-core(:$input!, Str :$copyright = '',
 
   my sub send-chr-out() {
     @out.push($a) if $a;
+    $a-idx++;
     $a = $b;
     $b = $c;
     $c = $d;
@@ -167,6 +147,7 @@ sub minify-core(:$input!, Str :$copyright = '',
   }
 
   my sub delete-chr-a() {
+    $a-idx++;
     $a = $b;
     $b = $c;
     $c = $d;
@@ -174,6 +155,7 @@ sub minify-core(:$input!, Str :$copyright = '',
   }
 
   my sub delete-chr-b() {
+    $a-idx++;
     $b = $c;
     $c = $d;
     $d = get;
@@ -454,12 +436,42 @@ sub minify-core(:$input!, Str :$copyright = '',
       }
 
       # For regular comments: consume and discard
+      my @buf;
       loop {
         last if !$b || ($a eq '*' && $b eq '/');
+        @buf.push($a) if $nocompress;
         delete-chr-a();
       }
 
       die 'unterminated comment, stopped' unless $b;
+
+      if $nocompress && @buf.join eq $NOCOMPRESS-BEGIN-BODY {
+        # A `/* BEGIN NOCOMPRESS */` marker: copy the source between it and
+        # the closing marker into the output verbatim, without minification.
+        # The window has advanced two characters past the marker's closing
+        # `*/` (buffered in $c and $d), so back the cursor up by two so the
+        # raw copy starts at the correct position.
+        $pos -= 2;
+        my $end = index($input-text, $NOCOMPRESS-END, $pos);
+        die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
+        my Str $block = substr($input-text, $pos, $end - $pos);
+        @out.push($block);
+        $pos = $end + $NOCOMPRESS-END.chars;
+        my Int $trail = $block.chars;
+        while $trail && is-whitespace($block.substr($trail - 1, 1)) {
+          $trail--;
+        }
+        if $trail {
+          my Str $nc = $block.substr($trail - 1, 1);
+          $prevnws = $lastnws;
+          $lastnws = $nc;
+          $last = $nc;
+        }
+        $a-idx = $pos - 4;
+        $a = get; $b = get; $c = get; $d = get;
+        skip-whitespace();
+        return;
+      }
 
       # Remove the closing * and /
       delete-chr-a();
@@ -522,16 +534,17 @@ sub minify-core(:$input!, Str :$copyright = '',
   # drop_console to probe how the following stream looks without committing
   # to a decision. Indexes: 0..4 look-ahead window ($pos, $a..$d),
   # 5..8 emitted-token bookkeeping ($prevnws, $lastnws, $last,
-  # $last-was-regex).
+  # $last-was-regex), 9 the index of $a within the input (used for the
+  # strip_debug line-start check).
   my sub snapshot-state() returns List {
-    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex);
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx);
   }
 
   # Rewind the look-ahead window, emitted-token bookkeeping, and @out to a
   # captured snapshot. Used after a probe that decided NOT to consume: the
   # stream must be left exactly as it was before the probe ran.
   my sub restore-lookahead(@s, Int $out-elems) {
-    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex) = @s;
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx) = @s;
     @out.splice($out-elems);
   }
 
@@ -561,6 +574,18 @@ sub minify-core(:$input!, Str :$copyright = '',
       return;
     }
     if $ca eq ';' {
+      if $strip_debug && at-line-start() && $b eq ';' && $c eq ';' {
+        # A `;;;` debug-prefixed line at the start of a line: discard the
+        # rest of the line and the terminating newline. Only reached from a
+        # real token boundary (never from inside a string, comment, or
+        # template literal, which the state machine consumes atomically).
+        while $a && !is-endspace($a) {
+          delete-chr-a();
+        }
+        delete-chr-a() if is-endspace($a);
+        skip-whitespace();
+        return;
+      }
       while is-whitespace($b) {
         delete-chr-b();
       }
@@ -713,8 +738,25 @@ sub minify-core(:$input!, Str :$copyright = '',
     skip-whitespace();
   }
 
-  if $copyright {
-    @out.push("/* $copyright */");
+  # The `true`/`false` → `!0`/`!1` shortening must never produce the invalid
+  # sequence `!0**`/`!1**` (a unary expression immediately before `**` is a
+  # SyntaxError). When a shortened literal is followed by a `**` operator,
+  # parenthesize it. The scan runs over the final element list so collapsed
+  # whitespace, comments, and verbatim (NOCOMPRESS) content are all
+  # accounted for; multi-character elements (verbatim blocks, kept comments)
+  # are token boundaries and are never treated as whitespace.
+  my sub finalize-output() returns Str {
+    for 0 ..^ @out.elems -> $i {
+      next unless @out[$i] eq '!0' || @out[$i] eq '!1';
+      my $j = $i + 1;
+      $j++ while $j < @out.elems && @out[$j].chars == 1 && is-whitespace(@out[$j]);
+      my $k = $j + 1;
+      $k++ while $k < @out.elems && @out[$k].chars == 1 && is-whitespace(@out[$k]);
+      if $j < @out.elems && $k < @out.elems && @out[$j] eq '*' && @out[$k] eq '*' {
+        @out[$i] = '(' ~ @out[$i] ~ ')';
+      }
+    }
+    @out.join;
   }
 
   my Bool $shebang = $len > 1 && $input-text.substr(0, 1) eq '#' && $input-text.substr(1, 1) eq '!';
@@ -729,9 +771,17 @@ sub minify-core(:$input!, Str :$copyright = '',
     @out.push('#!' ~ @shebang-line.join);
     $pos = $idx;
     $pos++ if $idx < $len && is-endspace($input-text.substr($idx, 1));
-    if $pos >= $len {
-      return restore-nocompress(@out.join, @nocompress_blocks);
-    }
+  }
+
+  # The shebang (if any) must come first in the output; a copyright banner is
+  # placed after it, on its own line, so the shebang itself is never broken.
+  if $copyright {
+    @out.push("\n") if $shebang && @out && @out[*-1].substr(*-1, 1) ne "\n";
+    @out.push("/* $copyright */");
+  }
+
+  if $pos >= $len {
+    return finalize-output();
   }
 
   $a = get;
@@ -741,6 +791,7 @@ sub minify-core(:$input!, Str :$copyright = '',
   $b = get;
   $c = get;
   $d = get;
+  $a-idx = 0 max ($pos - 4);
 
   while $a {
     if is-whitespace($a) {
@@ -749,7 +800,7 @@ sub minify-core(:$input!, Str :$copyright = '',
     process-char();
   }
 
-  return restore-nocompress(@out.join, @nocompress_blocks);
+  return finalize-output();
 }
 
 sub js-minifier(:$input!, Str :$copyright = '', :$stream,
@@ -760,7 +811,9 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$nocompress = False,
                 Bool :$aggressive = False) is export {
 
-  if $stream ~~ Channel {
+  if $stream.defined {
+    die "js-minifier: the ':stream' option requires a Channel, got {$stream.^name} instead"
+      unless $stream ~~ Channel;
     my $result = try {
       minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
                   :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);

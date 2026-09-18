@@ -1,0 +1,129 @@
+use v6;
+use Test;
+use lib 'lib';
+use JS::Minifier;
+
+# Regression tests for the audit fixes: exponentiation after shortened
+# true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
+# the :stream Channel contract, and the CLI hardenings.
+
+plan 33;
+
+# --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
+
+is js-minifier(input => 'var x = true ** 2;'),  'var x=(!0)**2;',  'true ** 2 parenthesized';
+is js-minifier(input => 'var x = false ** y;'), 'var x=(!1)**y;',  'false ** y parenthesized';
+is js-minifier(input => 'x = true/**/ ** y;'),   'x=(!0)**y;',     'true** comment-collapse still parenthesized';
+is js-minifier(input => 'x = true ** y;'),       'x=(!0)**y;',     'in-place ** parenthesized';
+is js-minifier(input => 'var x = true * 2;'),    'var x=!0*2;',    'single * unaffected';
+is js-minifier(input => 'var x = ** y;'),        'var x=**y;',     'bare ** untouched';
+is js-minifier(input => 'var x = true;'),        'var x=!0;',      'true alone still shortened';
+is js-minifier(input => 'var x = true ** 2 ** 3;'), 'var x=(!0)**2**3;', 'chained ** parenthesized once';
+
+# --- shebang is emitted before the copyright banner
+
+is js-minifier(input => "#!/usr/bin/env node\nvar x = 1;", copyright => 'MIT'),
+   "#!/usr/bin/env node\n/* MIT */var x=1;",
+   'shebang line, then copyright, then body';
+is js-minifier(input => '#!/usr/bin/env node', copyright => 'MIT'),
+   "#!/usr/bin/env node\n/* MIT */",
+   'shebang-only + copyright keeps shebang on its own line';
+is js-minifier(input => '#!/usr/bin/env node'),
+   '#!/usr/bin/env node',
+   'shebang-only without copyright unchanged';
+is js-minifier(input => 'var x = 1;', copyright => 'MIT'),
+   '/* MIT */var x=1;',
+   'copyright still leads without a shebang';
+
+# --- NOCOMPRESS markers inside literals are not treated as blocks
+
+is js-minifier(input => q{var s = "/* BEGIN NOCOMPRESS */";}, :nocompress),
+   q{var s="/* BEGIN NOCOMPRESS */";},
+   'NOCOMPRESS marker inside a string is left alone';
+is js-minifier(input => q{var s = `/* BEGIN NOCOMPRESS */ x ;`;}, :nocompress),
+   q{var s=`/* BEGIN NOCOMPRESS */ x ;`;},
+   'NOCOMPRESS marker inside a template literal is left alone';
+is js-minifier(input => 'a;/* BEGIN NOCOMPRESS */ b ; /* END NOCOMPRESS */ c;', :nocompress),
+   'a; b ; c;',
+   'verbatim block preserves spacing and closes';
+is js-minifier(input => "a; /* BEGIN NOCOMPRESS */\n  raw  ;\n/* END NOCOMPRESS */ b;", :nocompress),
+   "a;\n  raw  ;\nb;",
+   'verbatim block keeps newlines in the block, collapses after';
+
+# --- strip_debug only acts on real line starts
+
+is js-minifier(input => 'var s = `;;;not a debug line`;', :strip_debug),
+   'var s=`;;;not a debug line`;',
+   ';;; inside a template literal kept';
+is js-minifier(input => 'var s = ";;;not a debug line";', :strip_debug),
+   'var s=";;;not a debug line";',
+   ';;; inside a string kept';
+is js-minifier(input => "a;\n;;;b\nc;", :strip_debug),
+   'a;c;',
+   ';;; at line start stripped';
+is js-minifier(input => "a ; ; ;\n;;;dbg\nx;", :strip_debug),
+   'a;;;x;',
+   'mid-line ; ; ; kept, next-line ;;; stripped';
+is js-minifier(input => ";;;debug;\nx;", :strip_debug),
+   'x;',
+   ';;; at start of input stripped';
+
+# --- :stream contract
+
+{
+  my $ch = Channel.new;
+  js-minifier(input => '/* BEGIN NOCOMPRESS */ raw ; /* END NOCOMPRESS */', :nocompress, :stream($ch));
+  is $ch.receive, ' raw ; ', 'stream with nocompress block';
+  ok $ch.closed, 'stream channel closed after nocompress';
+
+  my $ex;
+  try {
+    js-minifier(input => 'x;', :stream('not-a-channel'));
+    CATCH { default { $ex = $_ } }
+  }
+  ok $ex.defined, 'non-Channel :stream dies';
+  like ~$ex, /'requires a Channel'/, ':stream error is descriptive';
+}
+
+# --- CLI hardenings
+
+{
+  my $p = run('raku', 'bin/jsminify', '--bogus', :out, :err);
+  my $err = $p.err.slurp(:close);
+  $p.out.slurp(:close);
+  like $err, /'Unknown option:'/, 'unknown option rejected';
+  is $p.exitcode, 2, 'unknown option exit 2';
+}
+
+{
+  my $tmp = '/tmp/jsminify-test-check-o.js';
+  spurt $tmp, 'var x = 1;';
+  my $p = run('raku', 'bin/jsminify', '--check', '-o', '/tmp/jsminify-test-check-out.js', $tmp, :out, :err);
+  my $err = $p.err.slurp(:close);
+  $p.out.slurp(:close);
+  like $err, /'cannot be combined with --check'/, '--check + -o rejected';
+  is $p.exitcode, 2, '--check + -o exit 2';
+  unlink $tmp;
+}
+
+{
+  my $tmp = '/tmp/jsminify-test-unfixed.js';
+  spurt $tmp, "var x = 'unterminated";
+  my $p = run('raku', 'bin/jsminify', '--check', $tmp, :out, :err);
+  my $err = $p.err.slurp(:close);
+  $p.out.slurp(:close);
+  like $err, /'unterminated single quoted string literal'/, '--check reports the actual error';
+  is $p.exitcode, 1, '--check invalid input exit 1';
+  unlink $tmp;
+}
+
+{
+  my $tmp = '/tmp/jsminify-test-samefile.js';
+  spurt $tmp, 'var x = 1;';
+  my $p = run('raku', 'bin/jsminify', '-o', $tmp, $tmp, :out, :err);
+  $p.out.slurp(:close);
+  $p.err.slurp(:close);
+  is $p.exitcode, 0, '-o same-file exit 0';
+  is slurp($tmp), 'var x=1;', '-o same-file does not truncate the input';
+  unlink $tmp;
+}

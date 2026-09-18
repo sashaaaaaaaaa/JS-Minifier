@@ -14,9 +14,11 @@ JS::Minifier is considered safe:
 - CLI tool (`bin/jsminify`) with `--check` and `--output`
 - Template literal (backtick) support with `${}` interpolation
 - Bang-comment preservation (`/*! ... */` via `--keep-bang-comments`)
-- `true`/`false` → `!0`/`!1` shortening
+- `true`/`false` → `!0`/`!1` shortening (parenthesized when followed by `**`,
+  keeping the output valid)
 - Semicolon removal before `}`
-- Shebang (`#!`) preservation
+- Shebang (`#!`) preservation (the shebang is always emitted first, ahead of
+  any copyright banner)
 - NOCOMPRESS blocks (`/* BEGIN NOCOMPRESS */`)
 - `drop_console` / `drop_debugger` options
 - Multi-line string continuation (ECMA-5) stripping
@@ -98,11 +100,28 @@ jsminify [options] [file...]
 
 If no file is given, reads from stdin. See `jsminify --help` for options.
 
+`--check` runs the minifier over each input as a sanity check: it exits 0 when
+everything parses, and 1 otherwise, printing the failure (e.g. an unterminated
+string, comment, or NOCOMPRESS block) to stderr. No output is written, so
+`--check` cannot be combined with `-o/--output`. It validates that the
+minifier itself can process the input; it does not perform a full JavaScript
+syntax check.
+
 # Description
 
 This module removes unnecessary whitespace from JavaScript code. The primary requirement developing this module is to not break working code: if working JavaScript is input then working JavaScript is output. It is ok if the input has missing semi-colons, snips like '++ +' or '12 .toString()', for example. Internet Explorer conditional comments are copied to the output but the code inside these comments will not be minified.
 
-The ECMAScript specifications allow for many different whitespace characters: space, horizontal tab, vertical tab, new line, carriage return, form feed, and paragraph separator. This module understands all of these, plus the U+2028 line separator, as whitespace and minimizes them. U+2028, U+2029, line feed, carriage return, and form feed are treated as line terminators, so the newlines that separate statements are still preserved where they affect automatic semicolon insertion.
+The ECMAScript specifications allow for many different whitespace characters: space, horizontal tab, vertical tab, form feed, and line terminators (line feed, carriage return, and the U+2028 / U+2029 separators). This module understands all of these as whitespace and minimizes them. Only U+2028, U+2029, line feed, and carriage return are treated as line terminators, so the newlines that separate statements are still preserved where they affect automatic semicolon insertion. Form feed is treated as ordinary (non-terminating) whitespace.
+
+`;;;` debugging lines are stripped by `strip_debug` only when they appear at
+the start of a line; the same text inside a string, template literal, or
+comment is left untouched.
+
+`/* BEGIN NOCOMPRESS */` ... `/* END NOCOMPRESS */` blocks (with `nocompress`)
+are copied to the output verbatim. Their content is not minified; note that,
+as with the rest of the input, any CRLF line endings are first normalized to
+LF, so a block spanning `\r\n` lines comes out with `\n` only. The closing
+marker itself is always removed, and anything after it is minified normally.
 
 For static JavaScript files, it is recommended that you minify during the build stage of web deployment. If you minify on-the-fly then it might be a good idea to cache the minified file. Minifying static files on-the-fly repeatedly is wasteful.
 

@@ -17,8 +17,15 @@ my Str  $copyright;
 my      @files;
 
 my $i = 0;
+my Bool $opts-done = False;
 while $i < @*ARGS.elems {
   given @*ARGS[$i] {
+    when $opts-done {
+      @files.push($_);
+    }
+    when '--' {
+      $opts-done = True;
+    }
     when '-o' | '--output' {
       if $i + 1 >= @*ARGS.elems {
         note "'-o/--output' requires a value (output file)";
@@ -42,16 +49,23 @@ while $i < @*ARGS.elems {
     when '--check'                { $check = True; }
     when '--version'              { $version = True; }
     when '-h' | '--help'          { $help = True; }
-    default                       { @files.push($_); }
+    default {
+      if $_.starts-with('-') && $_ ne '-' {
+        note "Unknown option: '$_'";
+        note "Run 'jsminify --help' for usage.";
+        exit 2;
+      }
+      @files.push($_);
+    }
   }
   $i++;
 }
 
 if $version {
-  use JSON::Fast;
   my $meta = slurp($*PROGRAM.parent.parent.add('META6.json'));
-  my $ver  = from-json($meta)<version> // '?';
-  say "JS::Minifier v$ver";
+  my $ver;
+  $ver = ~$0 if $meta ~~ / '"version"' \s* ':' \s* '"' (\d+\.\d+\.\d+) '"' /;
+  say "JS::Minifier v" ~ ($ver // '?');
   exit 0;
 }
 
@@ -71,11 +85,18 @@ if $help {
       --nocompress              Respect /* BEGIN NOCOMPRESS */ blocks
       -a, --aggressive          Compact whitespace; keeps newlines that
                                 separate statements (ASI-safe)
-      --check                   Only check for errors, no output
+      --check                   Check inputs for errors, no output
+                                (runs the minifier; exits 0 on success,
+                                1 on failure). Cannot be combined with -o.
       --version                 Show version
       -h, --help                Show this help
     HELP
   exit 0;
+}
+
+if $check && $output {
+  note "-o/--output cannot be combined with --check (no output is written).";
+  exit 2;
 }
 
 if $check {
@@ -93,9 +114,8 @@ if $check {
                   nocompress => $nocompress,
                   aggressive => $aggressive);
       $ok = True;
-      CATCH { default { } }
+      CATCH { default { note "Error in $source: $_" } }
     }
-    note "Error in $source" unless $ok;
     $has_errors = True unless $ok;
   }
   if @files {
@@ -106,12 +126,14 @@ if $check {
   exit $has_errors ?? 1 !! 0;
 }
 
+if $output && @files.elems > 1 {
+  note "-o/--output cannot be combined with multiple input files (outputs would be concatenated with no separator).";
+  exit 1;
+}
+
 my $output_fh;
-if $output {
-  if @files.elems > 1 {
-    note "-o/--output cannot be combined with multiple input files (outputs would be concatenated with no separator).";
-    exit 1;
-  }
+my sub ensure-output() {
+  return if $output_fh;
   $output_fh = open $output, :w;
   unless $output_fh {
     note "Cannot open '$output' for writing";
@@ -128,7 +150,8 @@ my sub minify-and-print(Str $input) {
                              drop_debugger => $drop_debugger,
                              nocompress => $nocompress,
                              aggressive => $aggressive);
-  if $output_fh {
+  if $output {
+    ensure-output();
     try {
       $output_fh.print($minified);
       CATCH {
