@@ -32,7 +32,7 @@ sub is-alphanum(Str $x) returns Bool {
 sub is-endspace(Str $x) returns Bool {
   return False if $x eq '';
   my Int $o = ord($x);
-  $o == 10 || $o == 12 || $o == 13 || $o == 8232 || $o == 8233;
+  $o == 10 || $o == 13 || $o == 8232 || $o == 8233;
 }
 
 sub is-whitespace(Str $x) returns Bool {
@@ -228,6 +228,8 @@ sub minify-core(:$input!, Str :$copyright = '',
 
     step-chr-a();
 
+    my Bool $in-class = False;
+
     loop {
       while $a eq '\\' {
         if is-endspace($b) {
@@ -239,7 +241,16 @@ sub minify-core(:$input!, Str :$copyright = '',
         step-chr-a();
       }
       step-chr-a();
-      last if $last eq $delimiter || !$a;
+      last if !$a;
+      if $delimiter eq '/' {
+        if $in-class {
+          $in-class = False if $last eq ']';
+        }
+        elsif $last eq '[' {
+          $in-class = True;
+        }
+      }
+      last if $last eq $delimiter && !$in-class;
     }
 
     $last-was-regex = $delimiter eq '/';

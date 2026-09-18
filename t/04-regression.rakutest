@@ -4,7 +4,7 @@ use Test;
 use lib 'lib';
 use JS::Minifier;
 
-plan 27;
+plan 35;
 
 # ============================================================
 # BUG #1 FIXED: js-minify alias is now exported
@@ -171,6 +171,46 @@ plan 27;
   # A stale regex flag (regex earlier in the statement) must not add a space
   is js-minifier(input => 'a=/re/; b in c;'), 'a=/re/;b in c;',
      'BUG #18: no redundant space when keyword follows other tokens';
+}
+
+# ============================================================
+# BUG A FIXED: form feed (U+000C) is whitespace, not a line terminator
+# ============================================================
+{
+  my $ff = "\x0C";
+  # Backslash + FF inside a string is NOT a line continuation (FF is not a
+  # LineTerminator), so both characters must be preserved. node evaluates
+  # "a\<FF>b" as the 3-char string "a<FF>b"; dropping the pair ("ab") would
+  # corrupt the string value.
+  is js-minifier(input => "q=\"a\\{$ff}b\";"), "q=\"a\\{$ff}b\";",
+     'BUG A: backslash + form feed preserved in string literal';
+  # A form feed collides with nothing: it still acts as ordinary whitespace.
+  is js-minifier(input => "var{$ff}x{$ff}={$ff}1;"), "var{$ff}x=1;",
+     'BUG A: form feed usable as a whitespace separator';
+  is js-minifier(input => "return{$ff}5"), "return{$ff}5",
+     'BUG A: form feed kept as separator after return (no ASI)';
+}
+
+# ============================================================
+# BUG B FIXED: regex literal scanning tracks [...] character classes
+# ============================================================
+{
+  # A '/' inside a character class must not close the regex. When it was,
+  # the closing-delimiter bookkeeping was wrong and the space before
+  # in/instanceof was dropped -> "/[/]/in obj" is a SyntaxError.
+  is js-minifier(input => 'var r=/[/]/ in obj;'), 'var r=/[/]/ in obj;',
+     'BUG B: space kept before in after regex with slash in char class';
+  is js-minifier(input => 'var r=/[/]/ in obj;', :aggressive),
+     'var r=/[/]/ in obj;',
+     'BUG B: space kept before in (aggressive) after char-class regex';
+  is js-minifier(input => 'var r=/[a\/]b/ instanceof R;'),
+     'var r=/[a\/]b/ instanceof R;',
+     'BUG B: space kept before instanceof after escaped slash in class';
+  is js-minifier(input => 'var r=/[\]]/ in obj;', :aggressive),
+     'var r=/[\]]/ in obj;',
+     'BUG B: escaped closing bracket in class scanned fully (aggressive)';
+  is js-minifier(input => 'var r=/[\\\\]/ in obj;'), 'var r=/[\\\\]/ in obj;',
+     'BUG B: class containing escaped backslash keeps space before in';
 }
 
 done-testing;
