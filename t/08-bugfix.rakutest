@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :stream Channel contract, and the CLI hardenings.
 
-plan 33;
+plan 40;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -67,6 +67,36 @@ is js-minifier(input => "a ; ; ;\n;;;dbg\nx;", :strip_debug),
 is js-minifier(input => ";;;debug;\nx;", :strip_debug),
    'x;',
    ';;; at start of input stripped';
+
+# --- !0/!1 before ** across a preserved token (keep the output valid)
+
+is js-minifier(input => 'x = true/**/ ** y;'),
+   'x=(!0)**y;',
+   '!0 parenthesized before ** through a plain comment';
+is js-minifier(input => 'x = true/*!keep*/ ** y;', :keep_bang_comments),
+   'x=(!0)/*!keep*/**y;',
+   '!0 parenthesized before ** through a kept bang comment';
+is js-minifier(input => 'a = false/*@cc_on*/ ** b;'),
+   'a=(!1)/*@cc_on*/**b;',
+   '!1 parenthesized before ** through an IE conditional comment';
+is js-minifier(input => 'x = true/* BEGIN NOCOMPRESS */ ** /* END NOCOMPRESS */ y;', :nocompress),
+   'x=(!0) ** y;',
+   '!0 parenthesized before a ** inside a NOCOMPRESS block';
+
+# --- NOCOMPRESS blocks must not merge tokens or swallow ASI newlines
+
+is js-minifier(input => 'function f(){ return/* BEGIN NOCOMPRESS */1/* END NOCOMPRESS */; }', :nocompress),
+   'function f(){return 1}',
+   'verbatim block cannot splice tokens (return + 1)';
+is js-minifier(input => "var ok=1; /* BEGIN NOCOMPRESS */ x /* END NOCOMPRESS */\ny=9;", :nocompress),
+   "var ok=1; x \ny=9;",
+   'newline after a NOCOMPRESS block stays valid for ASI';
+
+# --- strip_debug right after a NOCOMPRESS block
+
+is js-minifier(input => "a; /* BEGIN NOCOMPRESS */ raw /* END NOCOMPRESS */\n;;;x=1;\nz=9;", :nocompress, :strip_debug),
+   "a; raw \nz=9;",
+   ';;; line following a NOCOMPRESS block is stripped';
 
 # --- :stream contract
 

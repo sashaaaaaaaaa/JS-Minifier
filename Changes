@@ -2,45 +2,6 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
-    - true/false shortening now parenthesizes when followed by **:
-      `true ** 2` is shortened to `(!0)**2`, not the invalid `!0**2`
-      (a unary expression cannot be the left operand of **)
-    - The shebang line is always emitted first; a copyright banner is placed
-      after it (on its own line), so `#!` scripts keep working
-    - NOCOMPRESS and strip_debug are now handled inside the state machine
-      instead of as regex pre-passes, so markers or ;;; lines that appear
-      inside strings, template literals, or comments are no longer touched
-      (previously they broke the input with "unterminated ..." errors)
-    - The NUL-delimited NOCOMPRESS placeholder mechanism was removed; raw
-      blocks are copied straight into the output
-    - CLI: -o no longer truncates a file when the input file is also the
-      output file (the output is opened lazily, after the input is read);
-      --check now prints the actual error and rejects -o; unknown options
-      are rejected; `--` ends option parsing; the version is parsed from
-      META6.json without the (undeclared) JSON::Fast dependency
-    - js-minifier: the :stream option now requires a Channel and dies with a
-      clear message otherwise
-    - README: line-terminator list corrected (form feed is whitespace but not
-      a line terminator); --check and NOCOMPRESS normalization documented
-
-    - State-machine rewrite of the minifier core (closure-lexical): the
-      per-character state hash and ~20 state-passing functions are replaced
-      by a closure with scalar window variables and inner subs. Output is
-      byte-identical to the previous implementation on every option combo.
-    - ~5.7x faster on a 441,600-char bundle (10.7s -> 1.9s plain mode);
-      memory is lower too (no per-char hash lookups)
-    - Added a differential regression test (t/06-differential) backed by
-      5,403 captured goldens covering 491 inputs x 11 option combos, plus a
-      benchmark script (xt/bench.raku)
-
-    - Aggressive mode is now ASI-safe: newlines that separate statements
-      are preserved (no longer silently producing invalid or semantically
-      changed output for semicolon-less code); whitespace before '.' is
-      stripped for compact member chains
-    - CLI: -o/--output and -c/--copyright now error when their value is
-      missing; -o no longer truncates a file when run interactively with
-      no input
-
     - Initial release: a fork of JS::Minify by Sam Morrison, rewritten for
       performance and reliability
     - New CLI tool bin/jsminify

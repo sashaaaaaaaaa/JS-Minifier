@@ -455,6 +455,15 @@ sub minify-core(:$input!, Str :$copyright = '',
         my $end = index($input-text, $NOCOMPRESS-END, $pos);
         die 'unterminated NOCOMPRESS block, stopped' unless $end.defined;
         my Str $block = substr($input-text, $pos, $end - $pos);
+        my Str $bfirst = $block ?? $block.substr(0, 1) !! '';
+        if $bfirst && $last &&
+            ((is-alphanum($last) && is-alphanum($bfirst)) ||
+             ($last eq '+' && $bfirst eq '+') ||
+             ($last eq '-' && $bfirst eq '-')) {
+          # The verbatim text and the preceding token would otherwise merge:
+          # e.g. `return` + `1` would become the identifier `return1`.
+          @out.push(' ');
+        }
         @out.push($block);
         $pos = $end + $NOCOMPRESS-END.chars;
         my Int $trail = $block.chars;
@@ -467,9 +476,9 @@ sub minify-core(:$input!, Str :$copyright = '',
           $lastnws = $nc;
           $last = $nc;
         }
-        $a-idx = $pos - 4;
+        $a-idx = $pos;
         $a = get; $b = get; $c = get; $d = get;
-        skip-whitespace();
+        preserve-endspace();
         return;
       }
 
@@ -741,17 +750,42 @@ sub minify-core(:$input!, Str :$copyright = '',
   # The `true`/`false` → `!0`/`!1` shortening must never produce the invalid
   # sequence `!0**`/`!1**` (a unary expression immediately before `**` is a
   # SyntaxError). When a shortened literal is followed by a `**` operator,
-  # parenthesize it. The scan runs over the final element list so collapsed
-  # whitespace, comments, and verbatim (NOCOMPRESS) content are all
-  # accounted for; multi-character elements (verbatim blocks, kept comments)
-  # are token boundaries and are never treated as whitespace.
+  # parenthesize it.
+  #
+  # The scan runs over the final element list. Between the literal and the
+  # exponentiation operator white space, preserved block comments
+  # (`/*!...*/`, `/*@...*/`, whose closing `*` and `/` are separate elements),
+  # and verbatim (NOCOMPRESS) content are transparent; a verbatim
+  # (NOCOMPRESS) block may itself open with the `**` operator. Any other
+  # element is a real token and stops the search, so parens are added only
+  # when the operator truly follows the literal.
   my sub finalize-output() returns Str {
+    my sub finalize-scan(Int $i is copy) returns Int {
+      loop {
+        my Str $el = $i < @out.elems ?? @out[$i] !! '';
+        last unless $el;
+        if $el.chars == 1 && is-whitespace($el) {
+          $i++;
+          next;
+        }
+        if $el.starts-with('/*') {
+          $i++;
+          $i += 2 unless $el.contains('*/');
+          next;
+        }
+        last;
+      }
+      $i;
+    }
+
     for 0 ..^ @out.elems -> $i {
       next unless @out[$i] eq '!0' || @out[$i] eq '!1';
-      my $j = $i + 1;
-      $j++ while $j < @out.elems && @out[$j].chars == 1 && is-whitespace(@out[$j]);
-      my $k = $j + 1;
-      $k++ while $k < @out.elems && @out[$k].chars == 1 && is-whitespace(@out[$k]);
+      my $j = finalize-scan($i + 1);
+      if $j < @out.elems && @out[$j].chars > 1 && @out[$j] ~~ /^ \s* \* \* / {
+        @out[$i] = '(' ~ @out[$i] ~ ')';
+        next;
+      }
+      my $k = finalize-scan($j + 1);
       if $j < @out.elems && $k < @out.elems && @out[$j] eq '*' && @out[$k] eq '*' {
         @out[$i] = '(' ~ @out[$i] ~ ')';
       }
