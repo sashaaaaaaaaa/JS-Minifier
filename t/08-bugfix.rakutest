@@ -5,7 +5,7 @@ use JS::Minifier;
 
 # Regression tests for the audit fixes: exponentiation after shortened
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
-# the :stream Channel contract, and the CLI hardenings.
+# the :channel Channel contract, and the CLI hardenings.
 
 plan 55;
 
@@ -117,21 +117,34 @@ is js-minifier(input => "a; /* BEGIN NOCOMPRESS */ raw /* END NOCOMPRESS */\n;;;
    "a; raw \nz=9;",
    ';;; line following a NOCOMPRESS block is stripped';
 
-# --- :stream contract
+# --- contextual 'of': the for-of keyword vs the identifier 'of'
+#
+# '/' after the for-of keyword starts a regex literal (for (x of /re/)), but
+# 'of' is a plain identifier everywhere else, where '/' is division. The
+# classification must depend on the preceding token, not just the word.
+
+is js-minifier(input => 'for (x of /re/) { f(x) }'), 'for(x of/re/){f(x)}',
+   "for-of keyword: '/' after of is a regex literal";
+is js-minifier(input => 'for (x of /a   b/) { g(x) }'), 'for(x of/a   b/){g(x)}',
+   "for-of keyword: regex literal whitespace kept verbatim";
+is js-minifier(input => 'x = of / 2;'), 'x=of/2;',
+   "identifier 'of' in an expression still yields division, not a regex";
+
+# --- :channel contract
 
 {
   my $ch = Channel.new;
-  js-minifier(input => '/* BEGIN NOCOMPRESS */ raw ; /* END NOCOMPRESS */', :nocompress, :stream($ch));
-  is $ch.receive, ' raw ; ', 'stream with nocompress block';
-  ok $ch.closed, 'stream channel closed after nocompress';
+  js-minifier(input => '/* BEGIN NOCOMPRESS */ raw ; /* END NOCOMPRESS */', :nocompress, :channel($ch));
+  is $ch.receive, ' raw ; ', 'channel with nocompress block';
+  ok $ch.closed, 'channel closed after nocompress';
 
   my $ex;
   try {
-    js-minifier(input => 'x;', :stream('not-a-channel'));
+    js-minifier(input => 'x;', :channel('not-a-channel'));
     CATCH { default { $ex = $_ } }
   }
-  ok $ex.defined, 'non-Channel :stream dies';
-  like ~$ex, /'requires a Channel'/, ':stream error is descriptive';
+  ok $ex.defined, 'non-Channel :channel dies';
+  like ~$ex, /'requires a Channel'/, ':channel error is descriptive';
 }
 
 # --- CLI hardenings

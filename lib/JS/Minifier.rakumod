@@ -58,6 +58,10 @@ sub is-postfix(Str $x) returns Bool {
   so $x ne "" && '})]'.contains: $x;
 }
 
+# NOTE: 'of' is deliberately *not* in this set: it is the for-of keyword only
+# after an identifier in a `for (x of ...)` head, but a plain identifier-
+# division in every other position (x = of / 2). regex-can-follow() in
+# minify-core resolves that contextually.
 my constant $REGEX-START = set <return typeof throw delete void case new in instanceof yield export import extends super await>;
 my constant $VAR-LET-CONST = set <var let const>;
 
@@ -102,8 +106,18 @@ sub minify-core(:$input!, Str :$copyright = '',
   my Str $prevnws    = '';
   my Str $lastnws    = '';
   my Bool $last-was-regex = False;
+  # True when the last token consumed was the for-of keyword ('of' directly
+  # following an identifier in a `for (x of ...)` head), in which case a
+  # following '/' starts a regex literal. Any other 'of' is a plain
+  # identifier and '/' after it is division (see regex-can-follow).
+  my Bool $last-token-was-forof = False;
   my Int $a-idx = 0;
   my Str $a = ''; my Str $b = ''; my Str $c = ''; my Str $d = '';
+
+  my sub regex-can-follow(Str $w) returns Bool {
+    is-regex-start($w)
+      || ($w eq 'of' && $last-token-was-forof);
+  }
 
   # Whether the current window position ($a) sits at the start of a line.
   # The index of $a within the input is tracked exactly, so the status is
@@ -388,9 +402,9 @@ sub minify-core(:$input!, Str :$copyright = '',
     # matter how much whitespace or how many line terminator
     # (automatic-semicolon-insertion does not fire before a '/').
     return False if $ln eq '"' || $ln eq "'" || $ln eq '`';
-    return False if is-alphanum($ln) && !is-regex-start($ln);
+    return False if is-alphanum($ln) && !regex-can-follow($ln);
     return False if ($ln eq '+' || $ln eq '-') && $prevnws eq $ln;
-    return False if $b eq '.' && !is-regex-start($ln);
+    return False if $b eq '.' && !regex-can-follow($ln);
     True;
   }
 
@@ -522,7 +536,7 @@ sub minify-core(:$input!, Str :$copyright = '',
                # After a string/template closer '/' is always division (see
                # is-regex-literal): a line break does not make it a regex.
                ($ln eq '"' || $ln eq "'" || $ln eq '`') ||
-               (is-alphanum($ln) && !is-regex-start($ln)) ||
+               (is-alphanum($ln) && !regex-can-follow($ln)) ||
                (($ln eq '+' || $ln eq '-') && $prevnws eq $ln) ||
                ($ln eq '/' && $last-was-regex)) {
       $last-was-regex = False;
@@ -533,7 +547,7 @@ sub minify-core(:$input!, Str :$copyright = '',
       return;
     }
 
-    if $ln ne '' && $b eq '.' && !is-regex-start($ln) {
+    if $ln ne '' && $b eq '.' && !regex-can-follow($ln) {
       $last-was-regex = False;
       @out.push(' ') if $last eq '/';
       collapse-whitespace();
@@ -631,6 +645,8 @@ sub minify-core(:$input!, Str :$copyright = '',
     }
     if is-alphanum($ca) {
       my Str $id = read-id();
+
+      $last-token-was-forof = $id eq 'of' && $lastnws && is-alphanum($lastnws);
 
       # After a regular-expression literal, an immediately adjacent keyword
       # that begins with a letter (e.g. in / instanceof) would otherwise be
@@ -854,7 +870,7 @@ sub minify-core(:$input!, Str :$copyright = '',
   return finalize-output();
 }
 
-sub js-minifier(:$input!, Str :$copyright = '', :$stream,
+sub js-minifier(:$input!, Str :$copyright = '', :$channel,
                 Bool :$strip_debug = False,
                 Bool :$keep_bang_comments = False,
                 Bool :$drop_console = False,
@@ -862,24 +878,25 @@ sub js-minifier(:$input!, Str :$copyright = '', :$stream,
                 Bool :$nocompress = False,
                 Bool :$aggressive = False) is export {
 
-  if $stream.defined {
-    die "js-minifier: the ':stream' option requires a Channel, got {$stream.^name} instead"
-      unless $stream ~~ Channel;
+  my %opts = :$strip_debug, :$keep_bang_comments, :$drop_console,
+             :$drop_debugger, :$nocompress, :$aggressive;
+
+  if $channel.defined {
+    die "js-minifier: the ':channel' option requires a Channel, got {$channel.^name} instead"
+      unless $channel ~~ Channel;
     my $result = try {
-      minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
-                  :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
+      minify-core(:$input, :$copyright, |%opts);
     }
     if $! {
-      $stream.close;
+      $channel.close;
       die $!;
     }
-    $stream.send($result);
-    $stream.close;
+    $channel.send($result);
+    $channel.close;
     return;
   }
 
-  minify-core(:$input, :$copyright, :$strip_debug, :$keep_bang_comments,
-              :$drop_console, :$drop_debugger, :$nocompress, :$aggressive);
+  minify-core(:$input, :$copyright, |%opts);
 }
 
 our &js-minify is export = &js-minifier;

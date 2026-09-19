@@ -62,9 +62,15 @@ while $i < @*ARGS.elems {
 }
 
 if $version {
-  my $meta = slurp($*PROGRAM.parent.parent.add('META6.json'));
-  my $ver;
-  $ver = ~$0 if $meta ~~ / '"version"' \s* ':' \s* '"' (\d+\.\d+\.\d+) '"' /;
+  my $ver  = '?';
+  my $path = $*PROGRAM.parent.parent.add('META6.json');
+  if $path.f {
+    try {
+      my $meta = slurp($path);
+      $ver = ~$0 if $meta ~~ / '"version"' \s* ':' \s* '"' (\d+\.\d+\.\d+) '"' /;
+      CATCH { default { $ver = '?' } }
+    }
+  }
   say "JS::Minifier v" ~ ($ver // '?');
   exit 0;
 }
@@ -120,7 +126,10 @@ if $check {
   }
   if @files {
     check-input($_) for @files;
-  } elsif !$*IN.t {
+  } elsif $*IN.t {
+    note "No input file given and stdin is a terminal. Pass a file or pipe in input.";
+    exit 1;
+  } else {
     check-input('(stdin)');
   }
   exit $has_errors ?? 1 !! 0;

@@ -36,17 +36,18 @@ my $js = slurp 'myScript.js';
 spurt 'myScript.min.js', js-minifier(input => $js);
 ```
 
-Stream output via client consumer Channel:
+Stream output via client consumer Channel (pass `:channel` to deliver the
+minified result on a Channel instead of returning it):
 
 ```raku
 my $js = slurp 'myScript.js';
-my $stream = Channel.new;
+my $channel = Channel.new;
 
-js-minifier(input => $js, stream => $stream);
+js-minifier(input => $js, channel => $channel);
 
 my $out = open "myScript.min.js", :rw;
 react {
-  whenever $stream -> $chr {
+  whenever $channel -> $chr {
     $out.print($chr);
   }
 }
@@ -136,12 +137,12 @@ Exported by default: `js-minifier()` (and `js-minify()` as an alias)
 
 # Repository
 
-You can obtain the latest source code and submit bug reports on the github repository for this module:
-[https://github.com/sashaaaaaaaaa/JS-Minifier](https://github.com/sashaaaaaaaaa/JS-Minifier).
+You can obtain the latest source code and submit bug reports on the repository for this module:
+[https://git.disroot.org/sasha/JS-Minifier](https://git.disroot.org/sasha/JS-Minifier).
 
 # Author
 
-* Sasha Abbott, [sashaaaaaaaaa](https://github.com/sashaaaaaaaaa), &lt;sashaa@disroot.org&gt;
+* Sasha Abbott, [sasha](https://git.disroot.org/sasha), &lt;sashaa@disroot.org&gt;, auth `zef:sasha`
 
 ## JS::Minifier is based on JS::Minify by:
 
