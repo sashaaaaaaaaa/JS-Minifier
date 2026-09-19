@@ -2,7 +2,7 @@
 
 This is a **fork** of [JS::Minify](https://github.com/scmorrison/JS-Minify) by Sam Morrison.
 
-JS::Minifier removes comments and unnecessary whitespace from JavaScript files. It typically reduces filesize by half, resulting in faster downloads. This is a Raku port of [JSMin](https://github.com/douglascrockford/JSMin) originally created by Douglas Crawford. JS::Minifier incorporates several bug-fixes that have been resolved in various JSMin ports from other languages (Perl, Python, etc.).
+JS::Minifier removes comments and unnecessary whitespace from JavaScript files. It typically reduces filesize by half, resulting in faster downloads. This is a Raku port of [JSMin](https://github.com/douglascrockford/JSMin) originally created by Douglas Crockford. JS::Minifier incorporates several bug-fixes that have been resolved in various JSMin ports from other languages (Perl, Python, etc.).
 
 JS::Minifier is considered safe:
 
@@ -76,7 +76,7 @@ Include a copyright comment at the top of the minified code:
 js-minifier(input => 'var x = 2;', copyright => 'BSD License');
 ```
 
-Treat ';;;' as '//' so that debugging code can be removed:
+Strip `;;;` debug lines so the debugging code is removed:
 
 ```raku
 js-minifier(input => "var x = 2;\n;;;alert('hi');\nvar x = 2;", :strip_debug)
@@ -109,7 +109,8 @@ The `input` parameter is mandatory. All other parameters are optional and can be
 jsminify [options] [file...]
 ```
 
-If no file is given, reads from stdin. See `jsminify --help` for options.
+If no file is given, reads from stdin (and reports an error, exiting 1, when
+stdin is a terminal rather than a pipe). See `jsminify --help` for options.
 
 `--check` runs the minifier over each input as a sanity check: it exits 0 when
 everything parses, and 1 otherwise, printing the failure (e.g. an unterminated
@@ -132,8 +133,9 @@ string, template literal, or comment is left untouched.
 `/* BEGIN NOCOMPRESS */` ... `/* END NOCOMPRESS */` blocks (with `nocompress`)
 are copied to the output verbatim. Their content is not minified; note that,
 as with the rest of the input, any CRLF line endings are first normalized to
-LF, so a block spanning `\r\n` lines comes out with `\n` only. The closing
-marker itself is always removed, and anything after it is minified normally.
+LF, so a block spanning `\r\n` lines comes out with `\n` only. The marker
+comments themselves are always removed, and anything after the block is
+minified normally.
 
 For static JavaScript files, it is recommended that you minify during the build stage of web deployment. If you minify on-the-fly then it might be a good idea to cache the minified file. Minifying static files on-the-fly repeatedly is wasteful.
 
