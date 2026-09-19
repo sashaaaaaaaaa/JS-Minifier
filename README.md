@@ -21,6 +21,10 @@ JS::Minifier is considered safe:
   any copyright banner)
 - NOCOMPRESS blocks (`/* BEGIN NOCOMPRESS */`)
 - `drop_console` / `drop_debugger` options
+- Unicode-aware whitespace and identifiers: the full ECMAScript whitespace set
+  is collapsed, U+2028 / U+2029 are treated as line terminators (upstream
+  JS::Minify recognized only LF, CR, and form feed), and non-ASCII identifier
+  characters are respected
 - Multi-line string continuation (ECMA-5) stripping
 - `--aggressive` option: compacts whitespace while keeping newlines that
   separate statements (ASI-safe)
