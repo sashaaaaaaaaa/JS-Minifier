@@ -4,11 +4,22 @@ unit module JS::Minifier;
 
 my constant %SHORTEN    = 'true' => '!0', 'false' => '!1';
 
+# The character predicates below inspect the *leading* character of $x.
+# Most callers pass a single character from the look-ahead window, but a few
+# pass a whole token ($lastnws, or $last = 'console' after drop_console).
+# Classifying by the first character is equivalent for those because tokens
+# are scanned character-by-character: an identifier/number token is
+# alphanumeric iff its first character is, and keywords/identifiers are never
+# endspace/prefix characters.
+my sub leading-char(Str $x) returns Str {
+  $x ?? $x.substr(0, 1) !! '';
+}
+
 # ECMAScript IdentifierStart: $, _, Unicode letters (Lu Ll Lt Lm Lo), letter
 # numbers (Nl), plus '\\' for escaped identifiers.
 sub is-id-start(Str $x) returns Bool {
   return False if $x eq '';
-  my Int $o = ord($x);
+  my Int $o = ord(leading-char($x));
   return True if $o >= 65 && $o <= 90;    # A-Z
   return True if $o >= 97 && $o <= 122;   # a-z
   return True if $o == 0x5F || $o == 0x24 || $o == 0x5C;  # _ $ \
@@ -20,7 +31,7 @@ sub is-id-start(Str $x) returns Bool {
 # the continuation characters of an identifier or number literal.
 sub is-alphanum(Str $x) returns Bool {
   return False if $x eq '';
-  my Int $o = ord($x);
+  my Int $o = ord(leading-char($x));
   return True if $o >= 48 && $o <= 57;    # 0-9 (Nd, fast path)
   return True if is-id-start($x);
   $o > 126 && (
@@ -31,13 +42,13 @@ sub is-alphanum(Str $x) returns Bool {
 
 sub is-endspace(Str $x) returns Bool {
   return False if $x eq '';
-  my Int $o = ord($x);
+  my Int $o = ord(leading-char($x));
   $o == 10 || $o == 13 || $o == 8232 || $o == 8233;
 }
 
 sub is-whitespace(Str $x) returns Bool {
   return False if $x eq '';
-  my Int $o = ord($x);
+  my Int $o = ord(leading-char($x));
   # ECMAScript WhiteSpace and LineTerminator productions
   $o == 0x0009 || $o == 0x000B || $o == 0x000C || $o == 0x0020 ||  # HT VT FF SP
   $o == 0x00A0 || $o == 0x1680 || $o == 0x202F || $o == 0x205F ||  # NBSP OGHAM NNBSP MMSP
@@ -47,15 +58,15 @@ sub is-whitespace(Str $x) returns Bool {
 }
 
 sub is-infix(Str $x) returns Bool {
-  so $x ne "" && ",;:=&%*<>?|\n".contains: $x;
+  so $x ne "" && ",;:=&%*<>?|\n".contains(leading-char($x));
 }
 
 sub is-prefix(Str $x) returns Bool {
-  so $x ne "" && ('{([!'.contains($x) || is-infix $x);
+  so $x ne "" && ('{([!'.contains(leading-char($x)) || is-infix $x);
 }
 
 sub is-postfix(Str $x) returns Bool {
-  so $x ne "" && '})]'.contains: $x;
+  so $x ne "" && '})]'.contains(leading-char($x));
 }
 
 # NOTE: 'of' is deliberately *not* in this set: it is the for-of keyword only
@@ -586,27 +597,15 @@ sub minify-core(:$input!, Str :$copyright = '',
       return;
     }
 
-    my Str $ln = $lastnws;
-    if $ln && (')]}.'.contains($ln) ||
-               # After a string/template closer '/' is always division (see
-               # is-regex-literal): a line break does not make it a regex.
-               ($ln eq '"' || $ln eq "'" || $ln eq '`') ||
-               (is-alphanum($ln) && !regex-can-follow($ln)) ||
-               (($ln eq '+' || $ln eq '-') && $prevnws eq $ln) ||
-               ($ln eq '/' && $last-was-regex)) {
+    # Decide division vs regex literal from the previous token. This is the
+    # same rule is-regex-literal uses for the probes (skip-matching-paren,
+    # bracket scanning), so decisions stay consistent everywhere.
+    if !is-regex-literal() {
       $last-was-regex = False;
       @out.push(' ') if $last eq '/';
       step-chr-a();
       collapse-whitespace();
       process-conditional-comment();
-      return;
-    }
-
-    if $ln ne '' && $b eq '.' && !regex-can-follow($ln) {
-      $last-was-regex = False;
-      @out.push(' ') if $last eq '/';
-      collapse-whitespace();
-      step-chr-a();
       return;
     }
 
@@ -630,16 +629,21 @@ sub minify-core(:$input!, Str :$copyright = '',
   # to a decision. Indexes: 0..4 look-ahead window ($pos, $a..$d),
   # 5..8 emitted-token bookkeeping ($prevnws, $lastnws, $last,
   # $last-was-regex), 9 the index of $a within the input (used for the
-  # strip_debug line-start check).
+  # strip_debug line-start check), 10..13 the for-of classification state
+  # ($last-token-was-forof, $in-for-head, $for-head-cstyle, $pending-for).
+  # The probes never enter a for-head today, but snapshotting the flags keeps
+  # that invariant from silently breaking if a future probe runs process-char.
   my sub snapshot-state() returns List {
-    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx);
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx,
+      $last-token-was-forof, $in-for-head, $for-head-cstyle, $pending-for);
   }
 
   # Rewind the look-ahead window, emitted-token bookkeeping, and @out to a
   # captured snapshot. Used after a probe that decided NOT to consume: the
   # stream must be left exactly as it was before the probe ran.
   my sub restore-lookahead(@s, Int $out-elems) {
-    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx) = @s;
+    ($pos, $a, $b, $c, $d, $prevnws, $lastnws, $last, $last-was-regex, $a-idx,
+      $last-token-was-forof, $in-for-head, $for-head-cstyle, $pending-for) = @s;
     @out.splice($out-elems);
   }
 
@@ -648,7 +652,9 @@ sub minify-core(:$input!, Str :$copyright = '',
   # because the removal leaves trailing-state set as if the statement never
   # emitted any token.
   my sub restore-token-state(@s) {
-    ($prevnws, $lastnws, $last, $last-was-regex) = @s[5..8];
+    ($prevnws, $lastnws, $last, $last-was-regex,
+      $last-token-was-forof, $in-for-head, $for-head-cstyle, $pending-for)
+        = @s[5,6,7,8,10,11,12,13];
   }
 
   my sub process-char() {

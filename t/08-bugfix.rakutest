@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :channel Channel contract, and the CLI hardenings.
 
-plan 74;
+plan 80;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -167,6 +167,34 @@ is js-minifier(input => 'x = [1,2].map(function(of){ return of / 3; });'),
 is js-minifier(input => 'function f(){ for (i = 0; i < of / 2; i++) y(); }'),
    'function f(){for(i=0;i<of/2;i++)y()}',
    'of in a C-style for-head: division (a `;;;` head is not for-of)';
+
+# --- division vs regex decision shared with the probes, and conditional
+# comments immediately after a division/regex slash
+#
+# These pin the single division-vs-regex decision point (is-regex-literal)
+# used both by the main loop and by the drop_console/drop_debugger probes,
+# and the separator that keeps `/<space>/*@` from collapsing into a line
+# comment (`//*@...`)  when an IE conditional comment follows a slash.
+
+is js-minifier(input => 'x = a / .5;'), 'x=a/.5;',
+   'division by a leading-dot number after an identifier';
+is js-minifier(input => 'x=a/ /*@ cc @*/ b;'), 'x=a/ /*@ cc @*/b;',
+   'cond. comment after division keeps the / /*@ separator';
+is js-minifier(input => 'x = /re/ /*@ cc @*/ .test(s);'),
+   'x=/re/ /*@ cc @*/.test(s);',
+   'cond. comment after a regex keeps the / /*@ separator';
+is js-minifier(input => 'x=a/ /* c */ b;'), 'x=a/b;',
+   'ordinary comment after division still collapses';
+
+# --- drop_console / drop_debugger probes leave the for-of classification
+# state intact (probes snapshot and restore it)
+
+is js-minifier(input => 'console.log(x); for (y of /re/) {}', :drop_console),
+   'for(y of/re/){}',
+   'for-of regex right after a dropped console.log';
+is js-minifier(input => 'debugger; for (y of /re/) {}', :drop_debugger),
+   'for(y of/re/){}',
+   'for-of regex right after a dropped debugger';
 
 # --- :channel contract
 
