@@ -107,10 +107,25 @@ sub minify-core(:$input!, Str :$copyright = '',
   my Str $lastnws    = '';
   my Bool $last-was-regex = False;
   # True when the last token consumed was the for-of keyword ('of' directly
-  # following an identifier in a `for (x of ...)` head), in which case a
+  # following an identifier inside a `for (x of ...)` head), in which case a
   # following '/' starts a regex literal. Any other 'of' is a plain
   # identifier and '/' after it is division (see regex-can-follow).
+  #
+  # A genuine for-of head is `for (` ... `)` with no ';' (a C-style
+  # `for (;;)` head instead contains one or two ';'). So 'of' is only a
+  # keyword when we are inside such a head. This keeps a plain identifier
+  # named 'of' (legal in sloppy mode, e.g. a parameter, a function name, or
+  # after `return`) from being mistaken for the keyword, which previously
+  # turned a following division '/' into a regex scan and crashed on valid
+  # input such as `function(of){ return of / 2; }` or
+  # `[1,2].map(function(of){ return of / 3; })`.
   my Bool $last-token-was-forof = False;
+  my Bool $in-for-head = False;
+  my Bool $for-head-cstyle = False;
+  # True right after the identifier `for`, so that the next processed '('
+  # (possibly after whitespace/line breaks) opens a for-head. Cleared when
+  # any other non-whitespace character is seen.
+  my Bool $pending-for = False;
   my Int $a-idx = 0;
   my Str $a = ''; my Str $b = ''; my Str $c = ''; my Str $d = '';
 
@@ -643,17 +658,20 @@ sub minify-core(:$input!, Str :$copyright = '',
       return;
     }
     if "'\"`".contains($ca) {
+      $pending-for = False;
       put-literal();
       preserve-endspace();
       return;
     }
     if $ca eq '+' || $ca eq '-' {
+      $pending-for = False;
       step-chr-a();
       collapse-whitespace();
       process-double-plus-minus();
       return;
     }
     if $ca eq ';' {
+      $pending-for = False;
       if $strip_debug && at-line-start() && $b eq ';' && $c eq ';' {
         # A `;;;` debug-prefixed line at the start of a line: discard the
         # rest of the line and the terminating newline. Only reached from a
@@ -675,10 +693,16 @@ sub minify-core(:$input!, Str :$copyright = '',
         return;
       }
       step-chr-a();
+      $for-head-cstyle = True if $in-for-head;
       skip-whitespace();
       return;
     }
     if ']})'.contains($ca) {
+      $pending-for = False;
+      if $in-for-head && $ca eq ')' {
+        $in-for-head = False;
+        $for-head-cstyle = False;
+      }
       step-chr-a();
       preserve-endspace();
       return;
@@ -686,7 +710,9 @@ sub minify-core(:$input!, Str :$copyright = '',
     if is-alphanum($ca) {
       my Str $id = read-id();
 
-      $last-token-was-forof = $id eq 'of' && $lastnws && is-alphanum($lastnws);
+      $last-token-was-forof = $id eq 'of'
+        && $in-for-head && !$for-head-cstyle
+        && $lastnws && is-alphanum($lastnws);
 
       # After a regular-expression literal, an immediately adjacent keyword
       # that begins with a letter (e.g. in / instanceof) would otherwise be
@@ -830,11 +856,19 @@ sub minify-core(:$input!, Str :$copyright = '',
       }
       $prevnws = $lastnws;
       $lastnws = $id;
+      $pending-for = $id eq 'for';
       collapse-whitespace();
       process-property-invocation();
       return;
     }
     step-chr-a();
+    if $pending-for && $ca eq '(' {
+      $in-for-head = True;
+      $for-head-cstyle = False;
+      $pending-for = False;
+    } elsif !is-whitespace($ca) {
+      $pending-for = False;
+    }
     skip-whitespace();
   }
 

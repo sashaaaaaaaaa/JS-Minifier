@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :channel Channel contract, and the CLI hardenings.
 
-plan 66;
+plan 74;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -129,6 +129,44 @@ is js-minifier(input => 'for (x of /a   b/) { g(x) }'), 'for(x of/a   b/){g(x)}'
    "for-of keyword: regex literal whitespace kept verbatim";
 is js-minifier(input => 'x = of / 2;'), 'x=of/2;',
    "identifier 'of' in an expression still yields division, not a regex";
+
+# --- identifier 'of' used as a name (legal in sloppy mode) must not be
+# mistaken for the for-of keyword; a following '/' is division, and the
+# minifier must not crash scanning it as a regex literal
+#
+# (regression: was "unterminated regular expression literal, stopped" on
+# valid input such as this)
+
+is js-minifier(input => 'var f = function(of){ return of / 2; };'),
+   'var f=function(of){return of/2};',
+   'parameter named of: return of / 2 is division (was a crash)';
+is js-minifier(input => '[1,2].forEach(function(of){ x = of / 3; });'),
+   '[1,2].forEach(function(of){x=of/3});',
+   'function param of: assignment of / 3 is division';
+is js-minifier(input => 'function of() { return of / 2; }'),
+   'function of(){return of/2}',
+   'function named of: return of / 2 is division';
+is js-minifier(input => 'x = (of) / 2;'), 'x=(of)/2;',
+   'parenthesized of: division preserved';
+is js-minifier(input => 'for (let of = 5; of < 10; of++) x = of / 2;'),
+   'for(let of=5;of<10;of++)x=of/2;',
+   'for-head with variable named of: divisions stay divisions';
+
+# --- 'of' inside parentheses that are not a for-head (e.g. a wrapped
+# function expression) is still an identifier, and '/' after it is division
+#
+# (regression: both were "unterminated regular expression literal, stopped"
+# when the previous heuristic only looked at being inside parentheses)
+
+is js-minifier(input => 'x = (function(){ var of; return of / 2; })();'),
+   'x=(function(){var of;return of/2})();',
+   'of after var inside wrapped function: division (was a crash)';
+is js-minifier(input => 'x = [1,2].map(function(of){ return of / 3; });'),
+   'x=[1,2].map(function(of){return of/3});',
+   'of as param inside a call: division (was a crash)';
+is js-minifier(input => 'function f(){ for (i = 0; i < of / 2; i++) y(); }'),
+   'function f(){for(i=0;i<of/2;i++)y()}',
+   'of in a C-style for-head: division (a `;;;` head is not for-of)';
 
 # --- :channel contract
 
