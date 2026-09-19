@@ -113,9 +113,10 @@ This module removes unnecessary whitespace from JavaScript code. The primary req
 
 The ECMAScript specifications allow for many different whitespace characters: space, horizontal tab, vertical tab, form feed, and line terminators (line feed, carriage return, and the U+2028 / U+2029 separators). This module understands all of these as whitespace and minimizes them. Only U+2028, U+2029, line feed, and carriage return are treated as line terminators, so the newlines that separate statements are still preserved where they affect automatic semicolon insertion. Form feed is treated as ordinary (non-terminating) whitespace.
 
-`;;;` debugging lines are stripped by `strip_debug` only when they appear at
-the start of a line; the same text inside a string, template literal, or
-comment is left untouched.
+`;;;` debugging lines are stripped by `strip_debug` when they appear at the
+start of a line (a leading whitespace-only indentation does not count against
+that, so indented debug lines are stripped too); the same text inside a
+string, template literal, or comment is left untouched.
 
 `/* BEGIN NOCOMPRESS */` ... `/* END NOCOMPRESS */` blocks (with `nocompress`)
 are copied to the output verbatim. Their content is not minified; note that,

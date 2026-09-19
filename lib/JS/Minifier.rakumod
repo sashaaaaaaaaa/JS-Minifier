@@ -113,7 +113,14 @@ sub minify-core(:$input!, Str :$copyright = '',
   # string or template literal, because those are consumed atomically before
   # any of their characters ever reaches $a.
   my sub at-line-start() returns Bool {
-    $a-idx == 0 ?? True !! is-endspace($input-text.substr($a-idx - 1, 1));
+    my Int $i = $a-idx - 1;
+    while $i >= 0 {
+      my Str $c = $input-text.substr($i, 1);
+      return True if is-endspace($c);        # a line terminator begins the line
+      return False unless is-whitespace($c); # crossing a token means mid-line
+      $i--;                                  # skip whitespace-only indentation
+    }
+    True;                                    # nothing but whitespace before it
   }
 
   my sub get() returns Str {

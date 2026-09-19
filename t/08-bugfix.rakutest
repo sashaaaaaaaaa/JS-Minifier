@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :stream Channel contract, and the CLI hardenings.
 
-plan 40;
+plan 45;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -67,6 +67,25 @@ is js-minifier(input => "a ; ; ;\n;;;dbg\nx;", :strip_debug),
 is js-minifier(input => ";;;debug;\nx;", :strip_debug),
    'x;',
    ';;; at start of input stripped';
+
+# `;;;` is a debug line marker; whitespace-only leading indentation does not
+# change that, so indented lines are stripped too. Real tokens before the
+# marker on the same line still keep it from being treated as debug code.
+is js-minifier(input => "x=1;\n   ;;;a();\ny=2;", :strip_debug),
+   'x=1;y=2;',
+   'space-indented ;;; stripped';
+is js-minifier(input => "x=1;\n\t;;;b();\ny=2;", :strip_debug),
+   'x=1;y=2;',
+   'tab-indented ;;; stripped';
+is js-minifier(input => "x=1;\n      ;;;c();\ny=2;", :strip_debug),
+   'x=1;y=2;',
+   'deeply & mixed-indented ;;; stripped';
+is js-minifier(input => "x=1;   ;;;b();\ny=2;", :strip_debug),
+   'x=1;;;;b();y=2;',
+   ';;; after a real token on the same line kept';
+is js-minifier(input => "x = 1   ;\n   ;;;d();\ny=2;", :strip_debug),
+   'x=1;y=2;',
+   'indented ;;; stripped even after odd whitespace collapse';
 
 # --- !0/!1 before ** across a preserved token (keep the output valid)
 
