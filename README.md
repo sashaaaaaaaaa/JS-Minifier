@@ -6,8 +6,14 @@ JS::Minifier removes comments and unnecessary whitespace from JavaScript files. 
 
 JS::Minifier is considered safe:
 
-* Quoted strings and regular expression literals are not modified
-* No obfuscation or renaming occurs.
+* No identifiers are renamed and nothing is obfuscated: the only literal
+  replacement is the advertised `true` → `!0` / `false` → `!1` shortening.
+* String literal *values* never change. The one edit inside a string is
+  removing a `\`-newline line continuation (it contributes no characters to
+  the value, per ECMA-5); CRLF is normalized to LF.
+* Regular expression literals are emitted verbatim when recognized. Where the
+  leading `/` is classified as division instead (e.g. directly after `)`),
+  interior whitespace is subject to normal collapsing, matching JSMin.
 
 ## Additional features over JS::Minify
 
