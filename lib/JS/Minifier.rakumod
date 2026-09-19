@@ -137,6 +137,24 @@ sub minify-core(:$input!, Str :$copyright = '',
     True;                                    # nothing but whitespace before it
   }
 
+  # Whether the run of whitespace beginning at input index $from contains a
+  # line terminator. An automatic-semicolon-insertion boundary is a run that
+  # ends (at the next non-whitespace token, or EOF) without an endspace;
+  # conversely a run containing an endspace terminates the preceding complete
+  # statement, allowing it to be removed. $from must be the index of the
+  # first character after the statement's token, which $a-idx tracks exactly
+  # (the same invariant at-line-start relies on).
+  my sub whitespace-run-has-newline(Int $from) returns Bool {
+    my Int $i = $from;
+    while $i < $len {
+      my Str $ch = $input-text.substr($i, 1);
+      return True if is-endspace($ch);
+      return False unless is-whitespace($ch);
+      $i++;
+    }
+    False;
+  }
+
   my sub get() returns Str {
     return '' if $pos >= $len;
     my Str $ch = $input-text.substr($pos, 1);
@@ -205,6 +223,28 @@ sub minify-core(:$input!, Str :$copyright = '',
         if $brace-depth > 0 {
           if !$a {
             die 'unterminated template literal expression, stopped';
+          }
+          # A '/' followed by '*' or '/' inside the expression is always the
+          # start of a comment, never division or a regex literal. The
+          # characters are stepped through (not dropped) so the template is
+          # preserved verbatim, matching how the rest of the expression is
+          # copied; the comment body may legally contain template delimiters
+          # such as '`', '}', or '$'+'{', which must not reach the scanners.
+          if $a eq '/' && $b eq '*' {
+            step-chr-a(); step-chr-a();
+            while $a && !($a eq '*' && $b eq '/') {
+              step-chr-a();
+            }
+            die 'unterminated comment, stopped' unless $a;
+            step-chr-a(); step-chr-a();
+            next;
+          }
+          if $a eq '/' && $b eq '/' {
+            step-chr-a(); step-chr-a();
+            while $a && !is-endspace($a) {
+              step-chr-a();
+            }
+            next;
           }
           if $a eq '`' || $a eq "'" || $a eq '"' || ($a eq '/' && is-regex-literal()) {
             put-literal();
@@ -666,9 +706,12 @@ sub minify-core(:$input!, Str :$copyright = '',
           # Probe the following stream to decide without mutating the real state.
           my @snap = snapshot-state();
           my $out-elems = @out.elems;
+          my $tail-idx = $a-idx;   # first input char after the 'debugger' token
           collapse-whitespace();
           skip-whitespace();
-          if $a eq ';' || $a eq '}' || !$a {
+          # 'debugger' is a complete statement, so a line terminator directly
+          # after it terminates it via ASI just like a ';' does.
+          if $a eq ';' || $a eq '}' || !$a || whitespace-run-has-newline($tail-idx) {
             if $a eq ';' {
               delete-chr-a();
             }
@@ -701,8 +744,23 @@ sub minify-core(:$input!, Str :$copyright = '',
             if $dropit {
               delete-chr-a();              # consume '('
               skip-matching-paren('(', ')');
+              my $after-call-idx = $a-idx; # first input char after the ')'
               skip-whitespace();
               $dropit = $a eq ';' || $a eq '}' || !$a;
+              # ASI: a line terminator directly after the call ends the
+              # expression statement, so it can be dropped too — unless the
+              # next token continues the expression across the line break
+              # (e.g. "console.log(1)\n(function(){})()" calls log's result),
+              # which would change semantics. Conservative: any next token
+              # that can continue the expression keeps the statement.
+              if !$dropit && $a && whitespace-run-has-newline($after-call-idx) {
+                if is-alphanum($a) {
+                  my $probe-next = read-id();
+                  $dropit = $probe-next ne 'in' && $probe-next ne 'instanceof';
+                } else {
+                  $dropit = !'([`+-*/%&|^<>=?:,.;'.contains($a);
+                }
+              }
             }
           } else {
             $dropit = False;

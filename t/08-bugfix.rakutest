@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :channel Channel contract, and the CLI hardenings.
 
-plan 55;
+plan 66;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -217,3 +217,58 @@ is js-minifier(input => js-minifier(input => 'a3/*a*/.a', :aggressive), :aggress
 is js-minifier(input => '1/*a*/.5', :aggressive),
    '1 .5',
    'aggressive still keeps a separator before a . after an integer literal';
+
+# --- comments inside template-literal ${...} expressions (was a crash:
+# 'unterminated regular expression literal, stopped')
+
+is js-minifier(input => 'x = `a${b /* c */}z`;'),
+   'x=`a${b /* c */}z`;',
+   'block comment at the end of a ${...} expression is preserved, not a regex crash';
+is js-minifier(input => 'x = `a${b /* c */ + 2}z`;'),
+   'x=`a${b /* c */ + 2}z`;',
+   'block comment followed by more expression is preserved verbatim';
+is js-minifier(input => 'x = `a${b /* } */ c}z`;'),
+   'x=`a${b /* } */ c}z`;',
+   'block comment containing a } does not close the template expression';
+is js-minifier(input => 'x = `a${b // c
+}z`;'),
+   'x=`a${b // c
+}z`;',
+   'line comment inside a ${...} expression is preserved, not a regex crash';
+is js-minifier(input => 'x = `a${b
+// c
++ 2}z`;'),
+   'x=`a${b
+// c
++ 2}z`;',
+   'multi-line ${...} expression with a line comment preserved verbatim';
+
+# --- drop_debugger / drop_console across an ASI line break (was: not dropped)
+
+is js-minifier(input => "debugger
+x=1;", :drop_debugger),
+   'x=1;',
+   'newline-terminated debugger statement is dropped (ASI)';
+is js-minifier(input => '{debugger
+x=1;}', :drop_debugger),
+   '{x=1}',
+   'newline-terminated debugger in a block is dropped (ASI)';
+is js-minifier(input => "console.log(1)
+x=1;", :drop_console),
+   'x=1;',
+   'newline-terminated console.log statement is dropped (ASI)';
+is js-minifier(input => 'console.log(1)
+(function(){})()', :drop_console),
+   'console.log(1)
+(function(){})()',
+   'console.log before a ( is kept (the call would continue on the next line)';
+is js-minifier(input => "console.log(1)
++ 2;", :drop_console),
+   "console.log(1)
++2;",
+   'console.log before a + is kept (binary continuation across the line break)';
+is js-minifier(input => ";console.log(1)
+in foo;", :drop_console),
+   ";console.log(1)
+in foo;",
+   'console.log before in is kept (`in` continues the expression)';

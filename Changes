@@ -2,6 +2,15 @@ Revision history for JS::Minifier
 
 {{$NEXT}}
 
+    - Comments inside a template-literal ${...} expression (block or line,
+      multi-line) are now consumed properly instead of being misread as the
+      start of a regular expression literal (was: "unterminated regular
+      expression literal" crash on valid input)
+    - drop_console / drop_debugger now also remove statements terminated by
+      an ASI line break (e.g. "debugger" or "console.log(x)" on their own
+      line), while refusing to drop a console call that continues across the
+      line break (e.g. before a '(' or binary operator, which would change
+      semantics)
     - Initial release: a fork of JS::Minify by Sam Morrison, rewritten for
       performance and reliability
     - New CLI tool bin/jsminify
