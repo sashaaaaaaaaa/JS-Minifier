@@ -7,7 +7,7 @@ use JS::Minifier;
 # true/false, shebang/copyright ordering, NOCOMPRESS and strip_debug support,
 # the :stream Channel contract, and the CLI hardenings.
 
-plan 45;
+plan 55;
 
 # --- true/false shortening vs ** (unary-before-exponentiation is a SyntaxError)
 
@@ -176,3 +176,31 @@ is js-minifier(input => "a; /* BEGIN NOCOMPRESS */ raw /* END NOCOMPRESS */\n;;;
   is slurp($tmp), 'var x=1;', '-o same-file does not truncate the input';
   unlink $tmp;
 }
+
+# --- division after a string/template across a newline is NOT a regex
+
+is js-minifier(input => "x = \"a\"\n/ 2;"),
+   "x=\"a\"\n/2;",
+   'division after a string on a new line is not a regex (was a crash)';
+is js-minifier(input => "x = `t`\n/ 2 / 3;"),
+   "x=`t`\n/2/3;",
+   'division after a template literal on a new line is not a regex (was a crash)';
+is js-minifier(input => "x = \"a\"\n/ b/c / d;"),
+   "x=\"a\"\n/b/c/d;",
+   'chained division after a string on a new line preserved';
+is js-minifier(input => 'console.log("a"
+/ 2)', :drop_console),
+   '',
+   'drop_console probe does not misread a division after a string';
+
+# --- aggressive comment-removal is idempotent around member access
+
+is js-minifier(input => 'a3/*a*/.a', :aggressive),
+   'a3.a',
+   'aggressive drops the separator after a comment before a member access';
+is js-minifier(input => js-minifier(input => 'a3/*a*/.a', :aggressive), :aggressive),
+   'a3.a',
+   'aggressive is idempotent across a comment-removed member access';
+is js-minifier(input => '1/*a*/.5', :aggressive),
+   '1 .5',
+   'aggressive still keeps a separator before a . after an integer literal';

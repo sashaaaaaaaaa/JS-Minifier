@@ -383,9 +383,11 @@ sub minify-core(:$input!, Str :$copyright = '',
       return $last-was-regex ?? False !! True;
     }
     return False if ')]}.'.contains($ln);
-    if $ln eq '"' || $ln eq "'" || $ln eq '`' {
-      return is-endspace($last) ?? True !! False;
-    }
+    # After a string or template literal a '/' is always division: the
+    # previous token is an operand, so the parser expects an operator no
+    # matter how much whitespace or how many line terminator
+    # (automatic-semicolon-insertion does not fire before a '/').
+    return False if $ln eq '"' || $ln eq "'" || $ln eq '`';
     return False if is-alphanum($ln) && !is-regex-start($ln);
     return False if ($ln eq '+' || $ln eq '-') && $prevnws eq $ln;
     return False if $b eq '.' && !is-regex-start($ln);
@@ -498,7 +500,13 @@ sub minify-core(:$input!, Str :$copyright = '',
           ((is-alphanum($last) && ( is-alphanum($b) || $b eq '.')) ||
            ($last eq '+' && $b eq '+') ||
            ($last eq '-' && $b eq '-') )) {
-        step-chr-a();
+        if $aggressive && $b eq '.' && dot-join-safe() {
+          # Aggressive mode: a member-access separator is unnecessary, so
+          # don't leave the placeholder space behind (keeps output stable).
+          skip-whitespace();
+        } else {
+          step-chr-a();
+        }
         return;
       }
       if ($last && !is-prefix($last)) {
@@ -511,7 +519,9 @@ sub minify-core(:$input!, Str :$copyright = '',
 
     my Str $ln = $lastnws;
     if $ln && (')]}.'.contains($ln) ||
-               (($ln eq '"' || $ln eq "'" || $ln eq '`') && !is-endspace($last)) ||
+               # After a string/template closer '/' is always division (see
+               # is-regex-literal): a line break does not make it a regex.
+               ($ln eq '"' || $ln eq "'" || $ln eq '`') ||
                (is-alphanum($ln) && !is-regex-start($ln)) ||
                (($ln eq '+' || $ln eq '-') && $prevnws eq $ln) ||
                ($ln eq '/' && $last-was-regex)) {
